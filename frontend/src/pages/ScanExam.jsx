@@ -13,8 +13,13 @@ import {
   User,
   BookOpen,
   Table2,
+  X,
+  Camera,
+  HardDrive,
+  AlertCircle,
 } from 'lucide-react'
 import { startSession, uploadPages, completeStudent, endSession, getExamFormat, listWorksheets, uploadStudentExcel } from '../api'
+import { getScannerInstructions, SUPPORTED_SCAN_TYPES, validateScannedFile } from '../utils/scanner'
 
 const PIPELINE_STEPS = [
   { key: 'department', label: 'Department' },
@@ -106,6 +111,10 @@ export default function ScanExam() {
   // Step 4 sub-phases: 'upload' | 'review'
   const [scanPhase, setScanPhase] = useState('upload')
 
+  // Process dialog state
+  const [showProcessDialog, setShowProcessDialog] = useState(false)
+  const [showScannerHelp, setShowScannerHelp] = useState(false)
+
   // Upload
   const [files, setFiles] = useState([])
   const [ocrResult, setOcrResult] = useState(null)
@@ -189,6 +198,24 @@ export default function ScanExam() {
     multiple: true,
   })
   const removeFile = (idx) => setFiles(files.filter((_, i) => i !== idx))
+
+  // ── Process dialog handlers ──
+  const handleProcessClick = () => {
+    setShowProcessDialog(true)
+  }
+
+  const handleChooseUpload = () => {
+    if (files.length === 0) {
+      toast.error('Upload at least one page first')
+      return
+    }
+    setShowProcessDialog(false)
+    handleUploadPages()
+  }
+
+  const handleShowScannerHelp = () => {
+    setShowScannerHelp(true)
+  }
 
   // ── Pipeline navigation ──
   const goBack = () => {
@@ -801,11 +828,106 @@ export default function ScanExam() {
                 )}
 
                 <div className="mt-5 flex justify-end">
-                  <button onClick={handleUploadPages} disabled={loading || files.length === 0} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50">
+                  <button onClick={handleProcessClick} disabled={loading || files.length === 0} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50">
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <ScanLine size={16} />}
                     Process Pages
                   </button>
                 </div>
+
+                {/* Process Method Dialog */}
+                {showProcessDialog && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">Process Exam Pages</h3>
+                        <button onClick={() => setShowProcessDialog(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                          <X size={20} />
+                        </button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        {/* Process uploaded files */}
+                        <button
+                          onClick={handleChooseUpload}
+                          className="w-full flex items-center gap-4 p-4 border-2 border-indigo-500 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-all group"
+                        >
+                          <div className="w-12 h-12 bg-indigo-200 rounded-lg flex items-center justify-center">
+                            <CheckCircle2 size={24} className="text-indigo-600" />
+                          </div>
+                          <div className="text-left">
+                            <p className="font-semibold text-slate-800">Process {files.length} Uploaded Page(s)</p>
+                            <p className="text-sm text-slate-500">Start OCR processing now</p>
+                          </div>
+                        </button>
+
+                        {/* Scanner help button */}
+                        <button
+                          onClick={handleShowScannerHelp}
+                          className="w-full flex items-center gap-4 p-4 border-2 border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all group"
+                        >
+                          <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
+                            <HardDrive size={24} className="text-emerald-600" />
+                          </div>
+                          <div className="text-left">
+                            <p className="font-semibold text-slate-800">Need to Scan More?</p>
+                            <p className="text-sm text-slate-500">See how to scan from your USB scanner</p>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Scanner Help Dialog */}
+                {showScannerHelp && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-emerald-50">
+                        <div className="flex items-center gap-3">
+                          <HardDrive size={24} className="text-emerald-600" />
+                          <h3 className="text-lg font-semibold text-slate-800">How to Scan Documents</h3>
+                        </div>
+                        <button onClick={() => setShowScannerHelp(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                          <X size={20} />
+                        </button>
+                      </div>
+                      <div className="p-6">
+                        {(() => {
+                          const instructions = getScannerInstructions()
+                          return (
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-2 text-emerald-700 font-medium">
+                                <span className="text-lg">{instructions.title}</span>
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full">FREE</span>
+                              </div>
+                              <ol className="space-y-3">
+                                {instructions.steps.map((step, idx) => (
+                                  <li key={idx} className="flex gap-3">
+                                    <span className="flex-shrink-0 w-6 h-6 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-sm font-medium">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="text-slate-700">{step}</span>
+                                  </li>
+                                ))}
+                              </ol>
+                              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                <p className="text-sm text-amber-800">{instructions.tip}</p>
+                              </div>
+                              <div className="mt-4 pt-4 border-t border-slate-200">
+                                <p className="text-sm text-slate-600 mb-3">Supported formats: <span className="font-medium">PNG, JPG, TIFF, PDF</span></p>
+                                <button
+                                  onClick={() => setShowScannerHelp(false)}
+                                  className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+                                >
+                                  Got it, I'll upload scanned files
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
