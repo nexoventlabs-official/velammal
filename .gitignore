@@ -1,0 +1,12 @@
+.env
+*.env
+credentials.json
+results_credentials.json
+__pycache__/
+node_modules/
+dist/
+venv/
+.venv/
+uploads/
+*.pyc
+chatgpt*.html
