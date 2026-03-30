@@ -221,21 +221,40 @@ export default function ScanExam() {
   }
 
   // ── Scanner functions ──
+  const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron
+
   const handleCheckScanner = async () => {
     setScannerChecking(true)
     try {
-      const res = await checkScanner()
-      setScannerAvailable(res.data.available)
-      setScannerList(res.data.scanners || [])
-      if (res.data.available) {
-        toast.success(`Found ${res.data.scanners.length} scanner(s)!`)
+      if (isElectron) {
+        // Use Electron IPC for scanner detection
+        const result = await window.electronAPI.scanner.check()
+        setScannerAvailable(result.available)
+        setScannerList(result.scanners || [])
+        if (result.available) {
+          toast.success(`Found ${result.scanners.length} scanner(s)!`)
+        } else {
+          toast.info('No scanner detected. Connect USB scanner and try again.')
+        }
       } else {
-        toast.info('No scanner detected. Use manual upload instead.')
+        // Web mode - try backend API
+        const res = await checkScanner()
+        setScannerAvailable(res.data.available)
+        setScannerList(res.data.scanners || [])
+        if (res.data.available) {
+          toast.success(`Found ${res.data.scanners.length} scanner(s)!`)
+        } else {
+          toast.info('No scanner detected. Use manual upload instead.')
+        }
       }
     } catch (err) {
       console.error('Scanner check error:', err)
       setScannerAvailable(false)
-      toast.error('Could not detect scanner. Backend may not be running locally.')
+      if (!isElectron) {
+        toast.error('Scanner detection requires the desktop app or local backend.')
+      } else {
+        toast.error('Could not detect scanner.')
+      }
     }
     setScannerChecking(false)
   }
@@ -243,14 +262,38 @@ export default function ScanExam() {
   const handleScanDocument = async () => {
     setIsScanning(true)
     try {
-      const res = await scanDocument({ colorMode: 'color', dpi: 200 })
-      if (res.data.success && res.data.file_path) {
-        // Fetch the scanned file and add to files list
-        const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/uploads/${res.data.file_path.split('/').pop()}`)
-        const blob = await response.blob()
-        const file = new File([blob], `scan_${Date.now()}.png`, { type: 'image/png' })
-        setFiles(prev => [...prev, file])
-        toast.success('Page scanned successfully!')
+      if (isElectron) {
+        // Use Electron IPC for scanning
+        const result = await window.electronAPI.scanner.scan({})
+        if (result.success && result.filePath) {
+          // Get the scanned file data
+          const fileData = await window.electronAPI.scanner.getFile(result.filePath)
+          if (fileData.success) {
+            // Convert base64 to blob
+            const byteString = atob(fileData.data)
+            const ab = new ArrayBuffer(byteString.length)
+            const ia = new Uint8Array(ab)
+            for (let i = 0; i < byteString.length; i++) {
+              ia[i] = byteString.charCodeAt(i)
+            }
+            const blob = new Blob([ab], { type: fileData.mimeType })
+            const file = new File([blob], `scan_${Date.now()}.png`, { type: 'image/png' })
+            setFiles(prev => [...prev, file])
+            toast.success('Page scanned successfully!')
+          }
+        } else {
+          toast.error(result.error || 'Scan failed')
+        }
+      } else {
+        // Web mode - try backend API
+        const res = await scanDocument({ colorMode: 'color', dpi: 200 })
+        if (res.data.success && res.data.file_path) {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/uploads/${res.data.file_path.split('/').pop()}`)
+          const blob = await response.blob()
+          const file = new File([blob], `scan_${Date.now()}.png`, { type: 'image/png' })
+          setFiles(prev => [...prev, file])
+          toast.success('Page scanned successfully!')
+        }
       }
     } catch (err) {
       console.error('Scan error:', err)
