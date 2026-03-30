@@ -35,7 +35,20 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "service": "ExamScan AI"}
+    from app.services.google_sheets import sheets_service
+    from app.services.student_db import student_db
+    
+    return {
+        "status": "healthy",
+        "service": "ExamScan AI",
+        "connections": {
+            "results_db": sheets_service.results_db is not None,
+            "results_client": sheets_service.results_client is not None,
+            "mongodb": student_db.db is not None,
+            "sheet_id_configured": bool(settings.RESULTS_DB_SHEET_ID),
+            "credentials_configured": bool(settings.RESULTS_CREDENTIALS_JSON) or bool(settings.RESULTS_CREDENTIALS_FILE),
+        }
+    }
 
 
 if __name__ == "__main__":

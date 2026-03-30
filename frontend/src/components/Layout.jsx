@@ -13,7 +13,6 @@ const navItems = [
   { to: '/scan', icon: ScanLine, label: 'Scan Exam' },
   { to: '/results', icon: FileText, label: 'Results' },
   { to: '/manage', icon: FileSpreadsheet, label: 'Manage Sheets' },
-  { to: '/sessions', icon: FolderOpen, label: 'Sessions' },
 ]
 
 export default function Layout() {

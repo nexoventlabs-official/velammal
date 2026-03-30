@@ -5,8 +5,13 @@ import {
   ArrowLeft,
   Loader2,
   FileSpreadsheet,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react'
 import { listWorksheets, createWorksheet, restyleAllSheets } from '../api'
+import axios from 'axios'
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 export default function ManageSheets() {
   const [loading, setLoading] = useState(false)
@@ -14,8 +19,19 @@ export default function ManageSheets() {
   const [subjectCode, setSubjectCode] = useState('')
   const [totalMarks, setTotalMarks] = useState(60)
   const [worksheets, setWorksheets] = useState([])
+  const [connectionStatus, setConnectionStatus] = useState(null)
+
+  const checkConnection = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/health`)
+      setConnectionStatus(res.data.connections)
+    } catch {
+      setConnectionStatus({ results_db: false, error: true })
+    }
+  }
 
   useEffect(() => {
+    checkConnection()
     listWorksheets().then((res) => setWorksheets(res.data.worksheets || [])).catch(() => {})
   }, [])
 
@@ -54,10 +70,28 @@ export default function ManageSheets() {
             <h1 className="text-2xl font-bold text-slate-800">Manage Result Sheets</h1>
             <p className="text-slate-500 text-sm mt-1">Create result worksheets and apply styling.</p>
           </div>
-          <button onClick={handleRestyle} disabled={loading}
-            className="px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors disabled:opacity-50">
-            {loading ? 'Styling...' : '🎨 Restyle All Sheets'}
-          </button>
+          <div className="flex items-center gap-3">
+            {connectionStatus && (
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                connectionStatus.results_db 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+              }`}>
+                {connectionStatus.results_db ? (
+                  <><CheckCircle2 size={16} /> Results DB connected</>
+                ) : (
+                  <><AlertCircle size={16} /> Results DB not connected</>
+                )}
+                <button onClick={checkConnection} className="ml-1 hover:opacity-70">
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            )}
+            <button onClick={handleRestyle} disabled={loading || !connectionStatus?.results_db}
+              className="px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors disabled:opacity-50">
+              {loading ? 'Styling...' : '🎨 Restyle All Sheets'}
+            </button>
+          </div>
         </div>
       </div>
 
