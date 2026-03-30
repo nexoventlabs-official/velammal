@@ -1,7 +1,81 @@
-// Free scanner utility - uses native scanner apps + file upload
-// No paid SDK required!
+// Compress image file to reduce size for upload
+export const compressImage = async (file) => {
+  return new Promise((resolve, reject) => {
+    // If file is already small enough, skip compression
+    if (file.size < 5 * 1024 * 1024) { // Less than 5MB
+      resolve(file)
+      return
+    }
 
-// Convert PDF to images (for scanned PDFs)
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = (event) => {
+      const img = new Image()
+      img.src = event.target.result
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const maxWidth = 2000
+        const maxHeight = 2000
+        let width = img.width
+        let height = img.height
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height *= maxWidth / width
+            width = maxWidth
+          }
+        } else {
+          if (height > maxHeight) {
+            width *= maxHeight / height
+            height = maxHeight
+          }
+        }
+
+        canvas.width = width
+        canvas.height = height
+
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+
+        // Export as JPEG with 75% quality
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const compressedFile = new File(
+                [blob],
+                file.name.replace(/\.[^.]+$/, '.jpg'),
+                { type: 'image/jpeg' }
+              )
+              console.log(`[Compression] ${file.name}: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(compressedFile.size / 1024 / 1024).toFixed(2)}MB`)
+              resolve(compressedFile)
+            } else {
+              resolve(file) // If compression fails, use original
+            }
+          },
+          'image/jpeg',
+          0.75
+        )
+      }
+      img.onerror = () => resolve(file) // If image fails to load, use original
+    }
+    reader.onerror = () => reject(new Error('Failed to read file'))
+  })
+}
+
+// Compress multiple image files
+export const compressImages = async (files) => {
+  const compressedFiles = []
+  for (const file of files) {
+    try {
+      const compressed = await compressImage(file)
+      compressedFiles.push(compressed)
+    } catch (err) {
+      console.error('Compression error for', file.name, err)
+      compressedFiles.push(file) // Use original if compression fails
+    }
+  }
+  return compressedFiles
+}
 export const convertPdfToImages = async (pdfFile) => {
   // For PDF files, we'll pass them through as-is since the backend can handle them
   // Or convert first page to image preview

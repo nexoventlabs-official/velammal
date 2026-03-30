@@ -4,13 +4,57 @@ import json
 import shutil
 from datetime import datetime
 from typing import List, Optional
+from io import BytesIO
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from PIL import Image
 from app.config import settings
 from app.models import ExamConfig, ExamResult, ProcessingResponse, get_exam_format
 from app.services.google_sheets import sheets_service
 from app.services.student_db import student_db
 from app.services.ocr_engine import ocr_engine
 from app.services import cloudinary_service
+
+# Max file size for Cloudinary free tier (10MB) - we'll compress to 8MB to be safe
+MAX_FILE_SIZE = 8 * 1024 * 1024  # 8MB
+
+def compress_image(file_path: str, max_size: int = MAX_FILE_SIZE) -> str:
+    """Compress image to fit within max_size while maintaining readability."""
+    try:
+        with Image.open(file_path) as img:
+            # Convert to RGB if necessary (for PNG with transparency)
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            
+            # Get original size
+            original_size = os.path.getsize(file_path)
+            if original_size <= max_size:
+                return file_path
+            
+            # Calculate resize ratio based on file size
+            ratio = (max_size / original_size) ** 0.5
+            new_width = int(img.width * ratio)
+            new_height = int(img.height * ratio)
+            
+            # Resize image
+            img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Save with compression
+            compressed_path = file_path.rsplit('.', 1)[0] + '_compressed.jpg'
+            quality = 85
+            
+            while quality >= 30:
+                img_resized.save(compressed_path, 'JPEG', quality=quality, optimize=True)
+                if os.path.getsize(compressed_path) <= max_size:
+                    break
+                quality -= 10
+            
+            # Replace original with compressed
+            os.remove(file_path)
+            os.rename(compressed_path, file_path.rsplit('.', 1)[0] + '.jpg')
+            return file_path.rsplit('.', 1)[0] + '.jpg'
+    except Exception as e:
+        print(f"Image compression error: {e}")
+        return file_path
 
 router = APIRouter(prefix="/api/exam", tags=["Exam Processing"])
 
@@ -73,6 +117,9 @@ async def upload_exam_pages(
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
+        
+        # Compress image if too large (scanner images can be 20MB+)
+        file_path = compress_image(file_path)
         saved_paths.append(file_path)
 
         # Upload to Cloudinary for temporary storage

@@ -19,7 +19,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { startSession, uploadPages, completeStudent, endSession, getExamFormat, listWorksheets, uploadStudentExcel, checkScanner, scanDocument } from '../api'
-import { getScannerInstructions, SUPPORTED_SCAN_TYPES, validateScannedFile } from '../utils/scanner'
+import { getScannerInstructions, SUPPORTED_SCAN_TYPES, validateScannedFile, compressImages } from '../utils/scanner'
 
 const PIPELINE_STEPS = [
   { key: 'department', label: 'Department' },
@@ -368,7 +368,14 @@ export default function ScanExam() {
     if (files.length === 0) { toast.error('Upload at least one page'); return }
     setLoading(true)
     try {
-      const res = await uploadPages(sessionId, files)
+      // Compress images to reduce size for Cloudinary/Groq
+      toast.loading('Compressing images...')
+      const compressedFiles = await compressImages(files)
+
+      toast.dismiss()
+      toast.loading('Processing pages with OCR...')
+
+      const res = await uploadPages(sessionId, compressedFiles)
       const data = res.data.ocr_result
       setOcrResult(data)
       setRegNumber(data.registration_number || '')
@@ -411,9 +418,11 @@ export default function ScanExam() {
 
       setScanPhase('review')
       const engine = data.engine || 'unknown'
+      toast.dismiss()
       toast.success(`Processed ${files.length} page(s) via ${engine === 'groq_vision' ? 'Groq AI Vision' : engine}`)
     } catch (err) {
-      toast.error('Failed to process pages')
+      toast.dismiss()
+      toast.error(err?.response?.data?.message || 'Failed to process pages')
     }
     setLoading(false)
   }
