@@ -112,24 +112,42 @@ function initScanner() {
 function getScanners() {
   try {
     const script = `
-      $deviceManager = New-Object -ComObject WIA.DeviceManager
-      $scanners = @()
-      foreach ($deviceInfo in $deviceManager.DeviceInfos) {
-        if ($deviceInfo.Type -eq 1) {
-          $scanners += @{
-            id = $deviceInfo.DeviceID
-            name = $deviceInfo.Properties("Name").Value
+      try {
+        $deviceManager = New-Object -ComObject WIA.DeviceManager
+        $scanners = @()
+        foreach ($deviceInfo in $deviceManager.DeviceInfos) {
+          if ($deviceInfo.Type -eq 1) {
+            $scanners += @{
+              id = $deviceInfo.DeviceID
+              name = $deviceInfo.Properties.Item("Name").Value
+            }
           }
         }
+        if ($scanners.Count -eq 0) {
+          Write-Output "[]"
+        } elseif ($scanners.Count -eq 1) {
+          Write-Output ("[" + ($scanners | ConvertTo-Json -Compress) + "]")
+        } else {
+          Write-Output ($scanners | ConvertTo-Json -Compress)
+        }
+      } catch {
+        Write-Output "[]"
       }
-      $scanners | ConvertTo-Json
     `
-    const result = execSync(`powershell -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
+    const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
       encoding: 'utf8',
-      timeout: 10000
+      timeout: 15000,
+      windowsHide: true
     })
     
-    const parsed = JSON.parse(result || '[]')
+    const trimmed = result.trim()
+    console.log('Scanner detection result:', trimmed)
+    
+    if (!trimmed || trimmed === '') {
+      return []
+    }
+    
+    const parsed = JSON.parse(trimmed)
     return Array.isArray(parsed) ? parsed : [parsed]
   } catch (err) {
     console.error('Get scanners error:', err.message)
@@ -145,28 +163,35 @@ function scanDocument(scannerId = null) {
     const filePath = path.join(outputDir, fileName)
     
     const script = `
-      $deviceManager = New-Object -ComObject WIA.DeviceManager
-      $scanner = $null
-      foreach ($deviceInfo in $deviceManager.DeviceInfos) {
-        if ($deviceInfo.Type -eq 1) {
-          $scanner = $deviceInfo.Connect()
-          break
+      try {
+        $deviceManager = New-Object -ComObject WIA.DeviceManager
+        $scanner = $null
+        foreach ($deviceInfo in $deviceManager.DeviceInfos) {
+          if ($deviceInfo.Type -eq 1) {
+            $scanner = $deviceInfo.Connect()
+            break
+          }
         }
-      }
-      if ($scanner -eq $null) {
-        Write-Error "No scanner found"
+        if ($scanner -eq $null) {
+          throw "No scanner found"
+        }
+        $item = $scanner.Items(1)
+        $image = $item.Transfer("{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}")
+        $image.SaveFile("${filePath.replace(/\\/g, '\\\\')}")
+        Write-Output "${filePath.replace(/\\/g, '\\\\')}"
+      } catch {
+        Write-Error $_.Exception.Message
         exit 1
       }
-      $item = $scanner.Items(1)
-      $image = $item.Transfer("{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}")
-      $image.SaveFile("${filePath.replace(/\\/g, '\\\\')}")
-      Write-Output "${filePath.replace(/\\/g, '\\\\')}"
     `
     
-    const result = execSync(`powershell -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
+    const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
       encoding: 'utf8',
-      timeout: 60000 // 60 seconds for scanning
+      timeout: 60000,
+      windowsHide: true
     })
+    
+    console.log('Scan result:', result.trim())
     
     return {
       success: true,
@@ -174,11 +199,15 @@ function scanDocument(scannerId = null) {
       error: null
     }
   } catch (err) {
-    let errorMsg = err.message
+    let errorMsg = err.message || 'Unknown error'
+    console.error('Scan error:', errorMsg)
+    
     if (errorMsg.includes('0x80210006')) {
       errorMsg = 'Scanner is busy or paper not loaded'
     } else if (errorMsg.includes('0x80210001')) {
       errorMsg = 'Scanner not ready'
+    } else if (errorMsg.includes('No scanner found')) {
+      errorMsg = 'No scanner found. Please connect a scanner.'
     }
     
     return {
