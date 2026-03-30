@@ -27,7 +27,6 @@ const PIPELINE_STEPS = [
   { key: 'section', label: 'Section' },
   { key: 'academic', label: 'Academic Year' },
   { key: 'details', label: 'Subject & Exam' },
-  { key: 'scan', label: 'Scan' },
 ]
 
 const DEPARTMENTS = [
@@ -219,9 +218,10 @@ export default function ScanExam() {
 
   // ── Pipeline navigation ──
   const goBack = () => {
-    if (pipelineStep === 5 && scanPhase === 'review') {
+    if (pipelineStep === 4 && scanPhase === 'review') {
       setScanPhase('upload')
       setOcrResult(null)
+      setShowProcessDialog(true)
       return
     }
     if (pipelineStep > 0) setPipelineStep(pipelineStep - 1)
@@ -269,8 +269,8 @@ export default function ScanExam() {
       }
 
       setScanPhase('upload')
-      setPipelineStep(5)
-      toast.success('Exam session started!')
+      setShowProcessDialog(true)  // Show upload/scan dialog immediately
+      toast.success('Session started! Upload or scan exam pages.')
     } catch (err) {
       toast.error('Failed to start session')
     }
@@ -784,8 +784,8 @@ export default function ScanExam() {
               </div>
             )}
 
-            {/* ── STEP 5: Scan ── */}
-            {pipelineStep === 5 && scanPhase === 'upload' && (
+            {/* ── STEP 5: Scan (shown in dialog, this is just the page background) ── */}
+            {pipelineStep === 4 && scanPhase === 'upload' && sessionId && (
               <div>
                 <div className="flex items-center gap-3 mb-5">
                   <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -834,42 +834,89 @@ export default function ScanExam() {
                   </button>
                 </div>
 
-                {/* Process Method Dialog */}
+                {/* Upload/Scan Dialog */}
                 {showProcessDialog && (
                   <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                        <h3 className="text-lg font-semibold text-slate-800">Process Exam Pages</h3>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-indigo-50">
+                        <div className="flex items-center gap-3">
+                          <ScanLine size={24} className="text-indigo-600" />
+                          <h3 className="text-lg font-semibold text-slate-800">Upload or Scan Exam Pages</h3>
+                        </div>
                         <button onClick={() => setShowProcessDialog(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
                           <X size={20} />
                         </button>
                       </div>
-                      <div className="p-6 space-y-4">
-                        {/* Process uploaded files */}
+                      <div className="p-6 space-y-5">
+                        {/* Upload Area */}
+                        <div>
+                          <p className="text-sm font-medium text-slate-700 mb-2">Step 1: Upload scanned pages</p>
+                          <div
+                            {...getRootProps()}
+                            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'}`}
+                          >
+                            <input {...getInputProps()} />
+                            <Upload size={32} className="mx-auto text-slate-400 mb-2" />
+                            <p className="text-sm text-slate-600">
+                              {isDragActive ? 'Drop files here...' : 'Drag & drop scanned images, or click to browse'}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">PNG, JPG, TIFF, PDF supported</p>
+                          </div>
+                        </div>
+
+                        {/* Uploaded files preview */}
+                        {files.length > 0 && (
+                          <div className="bg-slate-50 rounded-lg p-3">
+                            <p className="text-sm font-medium text-slate-700 mb-2">{files.length} page(s) ready</p>
+                            <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
+                              {files.map((f, i) => (
+                                <div key={i} className="flex items-center gap-1 bg-white px-2 py-1 rounded border text-xs">
+                                  <FileImage size={12} className="text-slate-400" />
+                                  <span className="truncate max-w-[100px]">{f.name}</span>
+                                  <button onClick={() => removeFile(i)} className="text-rose-500 hover:text-rose-700">
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Process button */}
                         <button
                           onClick={handleChooseUpload}
-                          className="w-full flex items-center gap-4 p-4 border-2 border-indigo-500 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-all group"
+                          disabled={files.length === 0 || loading}
+                          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <div className="w-12 h-12 bg-indigo-200 rounded-lg flex items-center justify-center">
-                            <CheckCircle2 size={24} className="text-indigo-600" />
-                          </div>
-                          <div className="text-left">
-                            <p className="font-semibold text-slate-800">Process {files.length} Uploaded Page(s)</p>
-                            <p className="text-sm text-slate-500">Start OCR processing now</p>
-                          </div>
+                          {loading ? (
+                            <>
+                              <Loader2 size={18} className="animate-spin" />
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 size={18} />
+                              Process {files.length} Page(s) with OCR
+                            </>
+                          )}
                         </button>
 
-                        {/* Scanner help button */}
+                        {/* Divider */}
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 h-px bg-slate-200"></div>
+                          <span className="text-xs text-slate-400">Need to scan first?</span>
+                          <div className="flex-1 h-px bg-slate-200"></div>
+                        </div>
+
+                        {/* Scanner help */}
                         <button
                           onClick={handleShowScannerHelp}
-                          className="w-full flex items-center gap-4 p-4 border-2 border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all group"
+                          className="w-full flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-emerald-50 hover:border-emerald-300 transition-all text-left"
                         >
-                          <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
-                            <HardDrive size={24} className="text-emerald-600" />
-                          </div>
-                          <div className="text-left">
-                            <p className="font-semibold text-slate-800">Need to Scan More?</p>
-                            <p className="text-sm text-slate-500">See how to scan from your USB scanner</p>
+                          <HardDrive size={20} className="text-emerald-600" />
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">How to scan with USB scanner</p>
+                            <p className="text-xs text-slate-500">Step-by-step instructions</p>
                           </div>
                         </button>
                       </div>
@@ -931,7 +978,7 @@ export default function ScanExam() {
               </div>
             )}
 
-            {pipelineStep === 5 && scanPhase === 'review' && examFormat && (
+            {pipelineStep === 4 && scanPhase === 'review' && examFormat && (
               <div className="space-y-5">
                 {/* OCR header */}
                 <div>
