@@ -18,7 +18,7 @@ import {
   HardDrive,
   AlertCircle,
 } from 'lucide-react'
-import { startSession, uploadPages, completeStudent, endSession, getExamFormat, listWorksheets, uploadStudentExcel } from '../api'
+import { startSession, uploadPages, completeStudent, endSession, getExamFormat, listWorksheets, uploadStudentExcel, checkScanner, scanDocument } from '../api'
 import { getScannerInstructions, SUPPORTED_SCAN_TYPES, validateScannedFile } from '../utils/scanner'
 
 const PIPELINE_STEPS = [
@@ -113,6 +113,10 @@ export default function ScanExam() {
   // Process dialog state
   const [showProcessDialog, setShowProcessDialog] = useState(false)
   const [showScannerHelp, setShowScannerHelp] = useState(false)
+  const [scannerAvailable, setScannerAvailable] = useState(false)
+  const [scannerList, setScannerList] = useState([])
+  const [scannerChecking, setScannerChecking] = useState(false)
+  const [isScanning, setIsScanning] = useState(false)
 
   // Upload
   const [files, setFiles] = useState([])
@@ -214,6 +218,45 @@ export default function ScanExam() {
 
   const handleShowScannerHelp = () => {
     setShowScannerHelp(true)
+  }
+
+  // ── Scanner functions ──
+  const handleCheckScanner = async () => {
+    setScannerChecking(true)
+    try {
+      const res = await checkScanner()
+      setScannerAvailable(res.data.available)
+      setScannerList(res.data.scanners || [])
+      if (res.data.available) {
+        toast.success(`Found ${res.data.scanners.length} scanner(s)!`)
+      } else {
+        toast.info('No scanner detected. Use manual upload instead.')
+      }
+    } catch (err) {
+      console.error('Scanner check error:', err)
+      setScannerAvailable(false)
+      toast.error('Could not detect scanner. Backend may not be running locally.')
+    }
+    setScannerChecking(false)
+  }
+
+  const handleScanDocument = async () => {
+    setIsScanning(true)
+    try {
+      const res = await scanDocument({ colorMode: 'color', dpi: 200 })
+      if (res.data.success && res.data.file_path) {
+        // Fetch the scanned file and add to files list
+        const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}/uploads/${res.data.file_path.split('/').pop()}`)
+        const blob = await response.blob()
+        const file = new File([blob], `scan_${Date.now()}.png`, { type: 'image/png' })
+        setFiles(prev => [...prev, file])
+        toast.success('Page scanned successfully!')
+      }
+    } catch (err) {
+      console.error('Scan error:', err)
+      toast.error(err?.response?.data?.detail || 'Failed to scan. Check scanner connection.')
+    }
+    setIsScanning(false)
   }
 
   // ── Pipeline navigation ──
@@ -904,19 +947,71 @@ export default function ScanExam() {
                         {/* Divider */}
                         <div className="flex items-center gap-3">
                           <div className="flex-1 h-px bg-slate-200"></div>
-                          <span className="text-xs text-slate-400">Need to scan first?</span>
+                          <span className="text-xs text-slate-400">Or scan directly</span>
                           <div className="flex-1 h-px bg-slate-200"></div>
                         </div>
 
-                        {/* Scanner help */}
+                        {/* Direct Scanner Control */}
+                        <div className="border border-emerald-200 rounded-lg p-4 bg-emerald-50/50">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <HardDrive size={18} className="text-emerald-600" />
+                              <span className="text-sm font-medium text-slate-700">USB Scanner</span>
+                              {scannerAvailable && (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full">Connected</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={handleCheckScanner}
+                              disabled={scannerChecking}
+                              className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                            >
+                              {scannerChecking ? 'Checking...' : 'Detect Scanner'}
+                            </button>
+                          </div>
+                          
+                          {scannerAvailable ? (
+                            <div className="space-y-2">
+                              {scannerList.length > 0 && (
+                                <p className="text-xs text-slate-600">
+                                  Found: {scannerList[0]?.name || 'Scanner'}
+                                </p>
+                              )}
+                              <button
+                                onClick={handleScanDocument}
+                                disabled={isScanning}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                              >
+                                {isScanning ? (
+                                  <>
+                                    <Loader2 size={16} className="animate-spin" />
+                                    Scanning...
+                                  </>
+                                ) : (
+                                  <>
+                                    <ScanLine size={16} />
+                                    Scan Page Now
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500">
+                              <p>Click "Detect Scanner" to check for connected USB scanners.</p>
+                              <p className="mt-1">Requires backend running locally with scanner connected.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Manual scan help */}
                         <button
                           onClick={handleShowScannerHelp}
-                          className="w-full flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-emerald-50 hover:border-emerald-300 transition-all text-left"
+                          className="w-full flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-all text-left"
                         >
-                          <HardDrive size={20} className="text-emerald-600" />
+                          <AlertCircle size={18} className="text-slate-400" />
                           <div>
-                            <p className="text-sm font-medium text-slate-700">How to scan with USB scanner</p>
-                            <p className="text-xs text-slate-500">Step-by-step instructions</p>
+                            <p className="text-sm font-medium text-slate-600">Manual scanning guide</p>
+                            <p className="text-xs text-slate-400">Use Windows Scan app if direct scan doesn't work</p>
                           </div>
                         </button>
                       </div>

@@ -77,4 +77,13 @@ export const getDashboardStats = (filters = {}) => {
   return api.get(`/results/dashboard?${params.toString()}`)
 }
 
+// Scanner APIs (for local backend with connected scanner)
+export const checkScanner = () => api.get('/scanner/check')
+export const listScanners = () => api.get('/scanner/list')
+export const scanDocument = (options = {}) => api.post('/scanner/scan', {
+  scanner_id: options.scannerId || null,
+  color_mode: options.colorMode || 'color',
+  dpi: options.dpi || 200
+})
+
 export default api
