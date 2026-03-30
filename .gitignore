@@ -10,3 +10,6 @@ venv/
 uploads/
 *.pyc
 chatgpt*.html
+release/
+release2/
+*.exe
