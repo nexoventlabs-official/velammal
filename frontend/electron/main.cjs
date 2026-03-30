@@ -111,34 +111,43 @@ function initScanner() {
 // Get list of scanners using PowerShell WIA
 function getScanners() {
   try {
-    const script = `
-      try {
-        $deviceManager = New-Object -ComObject WIA.DeviceManager
-        $scanners = @()
-        foreach ($deviceInfo in $deviceManager.DeviceInfos) {
-          if ($deviceInfo.Type -eq 1) {
+    // Write PowerShell script to temp file to avoid escaping issues
+    const tempDir = app.getPath('temp')
+    const scriptPath = path.join(tempDir, 'detect_scanner.ps1')
+    
+    const scriptContent = `
+try {
+    $deviceManager = New-Object -ComObject WIA.DeviceManager
+    $scanners = @()
+    foreach ($deviceInfo in $deviceManager.DeviceInfos) {
+        if ($deviceInfo.Type -eq 1) {
             $scanners += @{
-              id = $deviceInfo.DeviceID
-              name = $deviceInfo.Properties.Item("Name").Value
+                id = $deviceInfo.DeviceID
+                name = $deviceInfo.Properties.Item("Name").Value
             }
-          }
         }
-        if ($scanners.Count -eq 0) {
-          Write-Output "[]"
-        } elseif ($scanners.Count -eq 1) {
-          Write-Output ("[" + ($scanners | ConvertTo-Json -Compress) + "]")
-        } else {
-          Write-Output ($scanners | ConvertTo-Json -Compress)
-        }
-      } catch {
+    }
+    if ($scanners.Count -eq 0) {
         Write-Output "[]"
-      }
-    `
-    const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
+    } elseif ($scanners.Count -eq 1) {
+        Write-Output ("[" + ($scanners | ConvertTo-Json -Compress) + "]")
+    } else {
+        Write-Output ($scanners | ConvertTo-Json -Compress)
+    }
+} catch {
+    Write-Output "[]"
+}
+`
+    fs.writeFileSync(scriptPath, scriptContent, 'utf8')
+    
+    const result = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 15000,
       windowsHide: true
     })
+    
+    // Clean up temp file
+    try { fs.unlinkSync(scriptPath) } catch (e) {}
     
     const trimmed = result.trim()
     console.log('Scanner detection result:', trimmed)
@@ -160,36 +169,42 @@ function scanDocument(scannerId = null) {
   try {
     const outputDir = app.getPath('temp')
     const fileName = `scan_${Date.now()}.png`
-    const filePath = path.join(outputDir, fileName)
+    const outputPath = path.join(outputDir, fileName)
     
-    const script = `
-      try {
-        $deviceManager = New-Object -ComObject WIA.DeviceManager
-        $scanner = $null
-        foreach ($deviceInfo in $deviceManager.DeviceInfos) {
-          if ($deviceInfo.Type -eq 1) {
+    // Write PowerShell script to temp file
+    const scriptPath = path.join(outputDir, 'scan_document.ps1')
+    const scriptContent = `
+try {
+    $deviceManager = New-Object -ComObject WIA.DeviceManager
+    $scanner = $null
+    foreach ($deviceInfo in $deviceManager.DeviceInfos) {
+        if ($deviceInfo.Type -eq 1) {
             $scanner = $deviceInfo.Connect()
             break
-          }
         }
-        if ($scanner -eq $null) {
-          throw "No scanner found"
-        }
-        $item = $scanner.Items(1)
-        $image = $item.Transfer("{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}")
-        $image.SaveFile("${filePath.replace(/\\/g, '\\\\')}")
-        Write-Output "${filePath.replace(/\\/g, '\\\\')}"
-      } catch {
-        Write-Error $_.Exception.Message
-        exit 1
-      }
-    `
+    }
+    if ($scanner -eq $null) {
+        throw "No scanner found"
+    }
+    $item = $scanner.Items(1)
+    $image = $item.Transfer("{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}")
+    $image.SaveFile("${outputPath.replace(/\\/g, '\\')}")
+    Write-Output "${outputPath.replace(/\\/g, '\\')}"
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+`
+    fs.writeFileSync(scriptPath, scriptContent, 'utf8')
     
-    const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
+    const result = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 60000,
       windowsHide: true
     })
+    
+    // Clean up script file
+    try { fs.unlinkSync(scriptPath) } catch (e) {}
     
     console.log('Scan result:', result.trim())
     
