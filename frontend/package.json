@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "author": "ExamScan AI",
   "description": "AI-powered exam paper scanning and grading system",
   "scripts": {
@@ -18,14 +18,14 @@
     "appId": "com.examscan.ai",
     "productName": "ExamScan AI",
     "directories": {
-      "output": "release"
+      "output": "release2"
     },
     "files": [
       "dist/**/*",
       "electron/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": ["portable"],
       "icon": "public/favicon.ico",
       "signAndEditExecutable": false
     }

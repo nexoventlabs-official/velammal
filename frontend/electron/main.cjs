@@ -1,14 +1,73 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
+const fs = require('fs')
+const http = require('http')
 const { execSync } = require('child_process')
 
 // Scanner module (Windows WIA)
 let scannerModule = null
+let server = null
 
 // Check if running in development
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production'
 
-function createWindow() {
+// MIME types
+const mimeTypes = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
+}
+
+// Start local server for production
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const appPath = app.getAppPath()
+    const distPath = path.join(appPath, 'dist')
+
+    server = http.createServer((req, res) => {
+      let filePath = req.url === '/' ? '/index.html' : req.url
+      filePath = path.join(distPath, filePath)
+
+      const ext = path.extname(filePath)
+      const contentType = mimeTypes[ext] || 'application/octet-stream'
+
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          // Try index.html for SPA routing
+          fs.readFile(path.join(distPath, 'index.html'), (err2, data2) => {
+            if (err2) {
+              res.writeHead(404)
+              res.end('Not found')
+            } else {
+              res.writeHead(200, { 'Content-Type': 'text/html' })
+              res.end(data2)
+            }
+          })
+        } else {
+          res.writeHead(200, { 'Content-Type': contentType })
+          res.end(data)
+        }
+      })
+    })
+
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port
+      console.log('Server running on port:', port)
+      resolve(port)
+    })
+
+    server.on('error', reject)
+  })
+}
+
+function createWindow(port) {
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -17,7 +76,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.cjs')
     },
     icon: path.join(__dirname, '../public/favicon.ico'),
     title: 'ExamScan AI',
@@ -29,8 +88,13 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    // In production, use local HTTP server
+    mainWindow.loadURL(`http://127.0.0.1:${port}`)
   }
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('Failed to load:', errorCode, errorDescription)
+  })
 }
 
 // Initialize scanner module
@@ -160,18 +224,25 @@ ipcMain.handle('scanner:getFile', async (event, filePath) => {
 })
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  let port = null
+  if (!isDev) {
+    port = await startServer()
+  }
   initScanner()
-  createWindow()
+  createWindow(port)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      createWindow(port)
     }
   })
 })
 
 app.on('window-all-closed', () => {
+  if (server) {
+    server.close()
+  }
   if (process.platform !== 'darwin') {
     app.quit()
   }
