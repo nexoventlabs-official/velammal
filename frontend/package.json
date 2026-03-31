@@ -26,7 +26,7 @@
     ],
     "win": {
       "target": ["portable"],
-      "icon": "public/app-logo.png",
+      "icon": "public/app-icon.ico",
       "signAndEditExecutable": false
     }
   },
