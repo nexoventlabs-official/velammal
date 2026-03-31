@@ -1,6 +1,7 @@
 """Cloudinary service for temporary scan image storage."""
 import cloudinary
 import cloudinary.uploader
+import cloudinary.api
 from typing import List
 from app.config import settings
 
@@ -31,13 +32,17 @@ def upload_image(file_path: str, folder: str = "examscan") -> dict:
         return {"public_id": None, "url": None}
 
 
-def delete_images(public_ids: List[str]):
-    """Delete images from Cloudinary after marks are extracted."""
-    if not CLOUDINARY_AVAILABLE or not public_ids:
+def delete_images(public_ids: List[str], folder: str = None):
+    """Delete images and their folder from Cloudinary after marks are extracted."""
+    if not CLOUDINARY_AVAILABLE:
         return
-    for pid in public_ids:
-        if pid:
-            try:
-                cloudinary.uploader.destroy(pid)
-            except Exception as e:
-                print(f"Cloudinary delete error for {pid}: {e}")
+    if public_ids:
+        try:
+            cloudinary.api.delete_resources(public_ids)
+        except Exception as e:
+            print(f"Cloudinary bulk delete error: {e}")
+    if folder:
+        try:
+            cloudinary.api.delete_folder(folder)
+        except Exception as e:
+            print(f"Cloudinary folder delete error for {folder}: {e}")

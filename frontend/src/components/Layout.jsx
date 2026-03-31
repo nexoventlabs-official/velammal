@@ -3,8 +3,6 @@ import {
   LayoutDashboard,
   ScanLine,
   FileText,
-  FolderOpen,
-  GraduationCap,
   FileSpreadsheet,
 } from 'lucide-react'
 
@@ -17,20 +15,26 @@ const navItems = [
 
 export default function Layout() {
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen" style={{ background: '#FFF8F0' }}>
       {/* Sidebar */}
-      <aside className="w-64 bg-gradient-to-b from-indigo-900 to-indigo-800 text-white flex flex-col shadow-xl">
-        <div className="p-6 border-b border-indigo-700">
+      <aside className="w-64 flex flex-col shadow-xl" style={{ background: 'linear-gradient(180deg, #8B1A1A 0%, #6B1414 100%)' }}>
+        {/* Logo Header */}
+        <div className="p-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center">
-              <GraduationCap size={24} />
-            </div>
+            <img
+              src="/app logo.png"
+              alt="Velammal Logo"
+              className="w-12 h-12 object-contain"
+              style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+            />
             <div>
-              <h1 className="text-lg font-bold tracking-tight">ExamScan AI</h1>
-              <p className="text-xs text-indigo-300">Grading System</p>
+              <h1 className="text-sm font-bold tracking-tight text-white leading-tight">Velammal</h1>
+              <p className="text-xs font-semibold" style={{ color: '#F5C518' }}>Engineering College</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>ExamScan AI</p>
             </div>
           </div>
         </div>
+
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
@@ -40,19 +44,25 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
                   isActive
-                    ? 'bg-white/15 text-white shadow-md'
-                    : 'text-indigo-200 hover:bg-white/10 hover:text-white'
+                    ? 'text-white shadow-md'
+                    : 'hover:text-white'
                 }`
               }
+              style={({ isActive }) => ({
+                background: isActive ? 'rgba(232,119,34,0.85)' : 'transparent',
+                color: isActive ? 'white' : 'rgba(255,255,255,0.7)',
+              })}
             >
               <Icon size={18} />
               {label}
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t border-indigo-700">
-          <div className="text-xs text-indigo-300 text-center">
-            Admin Panel v1.0
+
+        <div className="p-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
+          <div className="flex items-center justify-center gap-2">
+            <img src="/app logo.png" alt="" className="w-5 h-5 object-contain opacity-60" />
+            <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Admin Panel v1.0</span>
           </div>
         </div>
       </aside>
