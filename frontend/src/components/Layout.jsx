@@ -22,7 +22,7 @@ export default function Layout() {
         <div className="p-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
           <div className="flex items-center gap-3">
             <img
-              src="/app logo.png"
+              src="/app-logo.png"
               alt="Velammal Logo"
               className="w-12 h-12 object-contain"
               style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
@@ -61,7 +61,7 @@ export default function Layout() {
 
         <div className="p-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
           <div className="flex items-center justify-center gap-2">
-            <img src="/app logo.png" alt="" className="w-5 h-5 object-contain opacity-60" />
+            <img src="/app-logo.png" alt="" className="w-5 h-5 object-contain opacity-60" />
             <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Admin Panel v1.0</span>
           </div>
         </div>

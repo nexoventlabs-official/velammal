@@ -68,19 +68,28 @@ function startServer() {
 }
 
 function createWindow(port) {
+  const iconPath = path.join(__dirname, '../dist/app-logo.png')
+
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1200,
     minHeight: 700,
+    show: false,
+    backgroundColor: '#8B1A1A',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.cjs')
     },
-    icon: path.join(__dirname, '../public/favicon.ico'),
-    title: 'ExamScan AI',
+    icon: iconPath,
+    title: 'ExamScan AI - Velammal Engineering College',
     autoHideMenuBar: true
+  })
+
+  // Show window immediately when ready - avoids white flash
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
   })
 
   // Load the app
@@ -88,7 +97,6 @@ function createWindow(port) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    // In production, use local HTTP server
     mainWindow.loadURL(`http://127.0.0.1:${port}`)
   }
 
