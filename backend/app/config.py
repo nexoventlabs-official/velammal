@@ -35,11 +35,23 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
 # If RESULTS_CREDENTIALS_JSON env var is set (Render deployment),
 # write it to a file so gspread can use it
+# Supports both raw JSON and base64-encoded JSON
 if settings.RESULTS_CREDENTIALS_JSON:
     creds_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), settings.RESULTS_CREDENTIALS_FILE)
     try:
-        # Parse the JSON to validate it, then write
-        creds_data = json.loads(settings.RESULTS_CREDENTIALS_JSON)
+        import base64
+        creds_str = settings.RESULTS_CREDENTIALS_JSON.strip()
+        
+        # Try base64 decode first (preferred for Render to avoid escape issues)
+        try:
+            decoded = base64.b64decode(creds_str).decode('utf-8')
+            creds_data = json.loads(decoded)
+            print("✓ Decoded base64 credentials")
+        except:
+            # Fall back to raw JSON
+            creds_data = json.loads(creds_str)
+            print("✓ Parsed raw JSON credentials")
+        
         with open(creds_path, "w") as f:
             json.dump(creds_data, f)
         print(f"✓ Wrote Google credentials to {creds_path}")
