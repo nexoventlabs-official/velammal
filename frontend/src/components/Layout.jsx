@@ -3,14 +3,14 @@ import {
   LayoutDashboard,
   ScanLine,
   FileText,
-  FileSpreadsheet,
+  ClipboardList,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/scan', icon: ScanLine, label: 'Scan Exam' },
-  { to: '/results', icon: FileText, label: 'Results' },
-  { to: '/manage', icon: FileSpreadsheet, label: 'Manage Sheets' },
+  { to: '/result-sheets', icon: ClipboardList, label: 'Result Sheets' },
+  { to: '/results', icon: FileText, label: 'All Results' },
 ]
 
 export default function Layout() {

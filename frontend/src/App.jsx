@@ -3,8 +3,7 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import ScanExam from './pages/ScanExam'
 import Results from './pages/Results'
-import Sessions from './pages/Sessions'
-import ManageSheets from './pages/ManageStudents'
+import ResultSheets from './pages/ResultSheets'
 
 export default function App() {
   return (
@@ -12,9 +11,8 @@ export default function App() {
       <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="scan" element={<ScanExam />} />
+        <Route path="result-sheets" element={<ResultSheets />} />
         <Route path="results" element={<Results />} />
-        <Route path="manage" element={<ManageSheets />} />
-        <Route path="sessions" element={<Sessions />} />
       </Route>
     </Routes>
   )

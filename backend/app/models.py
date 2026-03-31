@@ -97,10 +97,11 @@ class SectionMarks(BaseModel):
 class ExamResult(BaseModel):
     register_number: str
     student_name: str
-    email: str
+    email: str = ""
     section: str
     academic_year: str = ""
     year: str = ""            # batch year
+    branch: str = ""
     subject_name: str
     subject_code: str
     total_marks: int

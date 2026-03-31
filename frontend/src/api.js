@@ -51,11 +51,14 @@ export const getSessionStudents = (sessionId) => api.get(`/students/session/${se
 
 // Results Worksheets APIs
 export const listWorksheets = () => api.get('/students/worksheets/list')
-
 export const createWorksheet = (subjectName, subjectCode, totalMarks) =>
   api.post('/students/worksheets/create', { subject_name: subjectName, subject_code: subjectCode, total_marks: totalMarks })
-
 export const restyleAllSheets = () => api.post('/students/restyle-all')
+
+// Result Sheets (new screen)
+export const listResultSheets = () => api.get('/results/sheets')
+export const getSheetResults = (sheetName) => api.get(`/results/sheets/${encodeURIComponent(sheetName)}/results`)
+export const getSheetStats = (sheetName) => api.get(`/results/sheets/${encodeURIComponent(sheetName)}/stats`)
 
 // Results APIs
 export const getResults = (filters = {}) => {

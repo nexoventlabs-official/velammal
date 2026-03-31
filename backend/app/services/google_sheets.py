@@ -18,35 +18,20 @@ SCOPES = [
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-# Base columns (before marks breakdown)
-BASE_HEADERS = [
-    "RegisterNumber", "StudentName", "Email", "Section", "AcademicYear",
-    "SubjectName", "SubjectCode", "TotalMarks", "MarksObtained",
-    "PassMarks", "Status", "PartATotal", "PartBCTotal",
-]
-
-
-def _build_marks_headers(total_marks: int) -> List[str]:
-    """Build individual mark column headers based on exam format."""
+# Simplified column headers - section totals only (no individual question marks)
+def _build_simple_headers(total_marks: int) -> List[str]:
     fmt = get_exam_format(total_marks)
-    cols = []
-    # Part A: Q1, Q2, ...
-    for i in range(1, fmt["part_a"]["questions"] + 1):
-        cols.append(f"Q{i}")
-    # Part BC: Q6a_i, Q6a_ii, Q6a_iii, Q6b_i, ...
-    for q in range(fmt["part_bc"]["questions_start"], fmt["part_bc"]["questions_end"] + 1):
-        for sub in fmt["part_bc"]["sub_parts"]:
-            for mc in fmt["part_bc"]["mark_columns"]:
-                cols.append(f"Q{q}{sub}_{mc}")
-    # Course Outcomes: CO-4_PARTA, CO-4_PARTB, ...
-    for label in fmt["course_outcomes"]["labels"]:
-        for c in fmt["course_outcomes"]["columns"]:
-            cols.append(f"{label}_{c.replace(' ', '')}")
-    return cols
+    part_a_max = fmt["part_a"]["max_marks"]
+    part_bc_max = fmt["part_bc"]["max_marks"]
+    return [
+        "S.No", "Register Number", "Student Name", "Section",
+        "Academic Year", "Year/Batch", "Department",
+        "Subject Name", "Subject Code",
+        f"Part A (/{part_a_max})", f"Part B&C (/{part_bc_max})",
+        f"Grand Total (/{total_marks})", "Pass Marks", "Status",
+    ]
 
-
-def _build_full_headers(total_marks: int) -> List[str]:
-    return BASE_HEADERS + _build_marks_headers(total_marks)
+BASE_HEADERS = _build_simple_headers(60)  # default for backward compat
 
 # ── Formatting colors ──
 HEADER_BG = {"red": 0.16, "green": 0.22, "blue": 0.43}
@@ -115,20 +100,16 @@ class GoogleSheetsService:
         if self.results_client and settings.RESULTS_DB_SHEET_ID:
             try:
                 spreadsheet = self.results_client.open_by_key(settings.RESULTS_DB_SHEET_ID)
-                # Get or create "All Results" as the main combined sheet
                 try:
                     self.results_db = spreadsheet.worksheet("All Results")
                 except gspread.exceptions.WorksheetNotFound:
                     try:
                         self.results_db = spreadsheet.worksheet("Sheet1")
                     except gspread.exceptions.WorksheetNotFound:
-                        # Create it
                         self.results_db = spreadsheet.add_worksheet(title="All Results", rows=500, cols=20)
-
                 existing = self.results_db.row_values(1)
                 if not existing:
-                    # Default to 60-mark headers for the main combined sheet
-                    headers = _build_full_headers(60)
+                    headers = _build_simple_headers(60)
                     self.results_db.append_row(headers)
                 _style_header(self.results_db, len(self.results_db.row_values(1) or BASE_HEADERS))
                 print(f"Results DB connected: '{self.results_db.title}'")
@@ -137,49 +118,38 @@ class GoogleSheetsService:
 
     # ─── Save results ───
 
-    def _result_row(self, r: ExamResult) -> list:
-        """Build a flat row with base columns + expanded section marks."""
-        base = [
-            r.register_number, r.student_name, r.email,
-            r.section, r.academic_year,
-            r.subject_name, r.subject_code,
-            str(r.total_marks), str(r.marks_obtained),
-            str(r.pass_marks), r.status,
-            str(r.part_a_total), str(r.part_bc_total),
-        ]
-        # Parse section_marks_json and expand into columns
+    def _get_row_count(self, ws) -> int:
+        """Get current number of data rows (excluding header)."""
         try:
-            sm = json.loads(r.section_marks_json) if r.section_marks_json else {}
-        except (json.JSONDecodeError, TypeError):
-            sm = {}
+            return max(0, len(ws.get_all_values()) - 1)
+        except Exception:
+            return 0
 
-        fmt = get_exam_format(r.total_marks)
-        part_a = sm.get("part_a", {})
-        part_bc = sm.get("part_bc", {})
-        co = sm.get("course_outcomes", {})
-
-        marks_cols = []
-        # Part A questions
-        for i in range(1, fmt["part_a"]["questions"] + 1):
-            marks_cols.append(str(part_a.get(f"Q{i}", 0)))
-        # Part BC questions
-        for q in range(fmt["part_bc"]["questions_start"], fmt["part_bc"]["questions_end"] + 1):
-            for sub in fmt["part_bc"]["sub_parts"]:
-                for mc in fmt["part_bc"]["mark_columns"]:
-                    marks_cols.append(str(part_bc.get(f"Q{q}{sub}_{mc}", 0)))
-        # Course Outcomes
-        for label in fmt["course_outcomes"]["labels"]:
-            co_data = co.get(label, {})
-            for c in fmt["course_outcomes"]["columns"]:
-                marks_cols.append(str(co_data.get(c, 0)))
-
-        return base + marks_cols
+    def _result_row(self, r: ExamResult, sno: int = 0) -> list:
+        """Build a simplified flat row: S.No + student info + section totals only."""
+        return [
+            str(sno) if sno else "",
+            r.register_number,
+            r.student_name,
+            r.section,
+            r.academic_year,
+            getattr(r, 'year', ''),
+            getattr(r, 'branch', ''),
+            r.subject_name,
+            r.subject_code,
+            str(r.part_a_total),
+            str(r.part_bc_total),
+            str(r.marks_obtained),
+            str(r.pass_marks),
+            r.status,
+        ]
 
     def save_result(self, result: ExamResult) -> bool:
         if not self.results_db:
             return False
         try:
-            row = self._result_row(result)
+            sno = self._get_row_count(self.results_db) + 1
+            row = self._result_row(result, sno)
             self.results_db.append_row(row)
             row_num = len(self.results_db.get_all_values())
             _style_row(self.results_db, row_num, len(row), result.status)
@@ -194,7 +164,8 @@ class GoogleSheetsService:
         try:
             sp = self.results_client.open_by_key(settings.RESULTS_DB_SHEET_ID)
             ws = sp.worksheet(sheet_name)
-            row = self._result_row(result)
+            sno = self._get_row_count(ws) + 1
+            row = self._result_row(result, sno)
             ws.append_row(row)
             row_num = len(ws.get_all_values())
             _style_row(ws, row_num, len(row), result.status)
@@ -261,28 +232,76 @@ class GoogleSheetsService:
             sp = self.results_client.open_by_key(settings.RESULTS_DB_SHEET_ID)
             try: return sp.worksheet("_registry")
             except gspread.exceptions.WorksheetNotFound:
-                ws = sp.add_worksheet(title="_registry", rows=100, cols=6)
-                ws.append_row(["SheetName", "SubjectName", "SubjectCode", "TotalMarks", "PassMarks", "ExamType"])
-                _style_header(ws, 6)
+                ws = sp.add_worksheet(title="_registry", rows=200, cols=10)
+                ws.append_row(["SheetName", "SubjectName", "SubjectCode", "TotalMarks", "PassMarks", "ExamType", "Section", "AcademicYear", "Branch", "CreatedAt"])
+                _style_header(ws, 10)
                 return ws
         except Exception: return None
 
-    def create_results_worksheet(self, subject_name, subject_code, total_marks) -> Dict:
+    def get_or_create_session_worksheet(self, config: dict) -> Dict:
+        """Auto-create a worksheet for a scanning session based on config (called at session start)."""
+        if not self.results_client or not settings.RESULTS_DB_SHEET_ID:
+            return {"success": False, "sheet_name": None, "message": "Results DB not connected"}
+        try:
+            import datetime
+            sp = self.results_client.open_by_key(settings.RESULTS_DB_SHEET_ID)
+            subject_code = config.get("subject_code", "")
+            subject_name = config.get("subject_name", "")
+            section = config.get("section", "")
+            academic_year = config.get("academic_year", "")
+            branch = config.get("branch", "")
+            year = config.get("year", "")
+            total_marks = int(config.get("total_marks", 60))
+            pass_marks = int(config.get("pass_marks", 24))
+            exam_type = config.get("exam_type", "Internal Assessment")
+
+            # Sheet name: SubjectCode - SubjectName - Section (AcademicYear)
+            name = f"{subject_code} - {subject_name} - {section} ({academic_year})"
+            # Truncate if too long (Google Sheets limit = 100 chars)
+            if len(name) > 95:
+                name = name[:95]
+
+            existing_titles = [w.title for w in sp.worksheets()]
+            if name in existing_titles:
+                return {"success": True, "sheet_name": name, "message": "Sheet already exists"}
+
+            headers = _build_simple_headers(total_marks)
+            ws = sp.add_worksheet(title=name, rows=300, cols=len(headers) + 2)
+            ws.append_row(headers)
+            _style_header(ws, len(headers))
+
+            reg = self._get_registry()
+            if reg:
+                reg.append_row([
+                    name, subject_name, subject_code, str(total_marks), str(pass_marks),
+                    exam_type, section, academic_year, branch,
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                ])
+            return {"success": True, "sheet_name": name, "message": f"Sheet '{name}' created"}
+        except Exception as e:
+            print(f"Error creating session worksheet: {e}")
+            return {"success": False, "sheet_name": None, "message": str(e)}
+
+    def create_results_worksheet(self, subject_name, subject_code, total_marks, section="", academic_year="", branch="") -> Dict:
         if not self.results_client or not settings.RESULTS_DB_SHEET_ID:
             return {"success": False, "message": "Results DB not connected"}
         try:
+            import datetime
             sp = self.results_client.open_by_key(settings.RESULTS_DB_SHEET_ID)
             name = f"{subject_code} - {subject_name} ({total_marks}m)"
             if name in [w.title for w in sp.worksheets()]:
                 return {"success": False, "message": f"'{name}' already exists"}
-            headers = _build_full_headers(total_marks)
-            ws = sp.add_worksheet(title=name, rows=200, cols=len(headers) + 2)
+            headers = _build_simple_headers(total_marks)
+            ws = sp.add_worksheet(title=name, rows=300, cols=len(headers) + 2)
             ws.append_row(headers)
             _style_header(ws, len(headers))
             exam_type = "Internal Assessment" if total_marks <= 60 else "Model Exam"
             pass_marks = 24 if total_marks <= 60 else 40
             reg = self._get_registry()
-            if reg: reg.append_row([name, subject_name, subject_code, str(total_marks), str(pass_marks), exam_type])
+            if reg:
+                reg.append_row([name, subject_name, subject_code, str(total_marks), str(pass_marks),
+                                 exam_type, section, academic_year, branch,
+                                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M")])
             return {"success": True, "message": f"'{name}' created", "sheet_name": name,
                     "subject_name": subject_name, "subject_code": subject_code,
                     "total_marks": total_marks, "pass_marks": pass_marks, "exam_type": exam_type}
@@ -299,13 +318,61 @@ class GoogleSheetsService:
             if reg:
                 for r in reg.get_all_records():
                     reg_data[str(r.get("SheetName", ""))] = {
-                        "subject_name": str(r.get("SubjectName", "")), "subject_code": str(r.get("SubjectCode", "")),
-                        "total_marks": int(r.get("TotalMarks", 0) or 0), "pass_marks": int(r.get("PassMarks", 0) or 0),
+                        "subject_name": str(r.get("SubjectName", "")),
+                        "subject_code": str(r.get("SubjectCode", "")),
+                        "total_marks": int(r.get("TotalMarks", 0) or 0),
+                        "pass_marks": int(r.get("PassMarks", 0) or 0),
                         "exam_type": str(r.get("ExamType", "")),
+                        "section": str(r.get("Section", "")),
+                        "academic_year": str(r.get("AcademicYear", "")),
+                        "branch": str(r.get("Branch", "")),
+                        "created_at": str(r.get("CreatedAt", "")),
                     }
-            return [{"sheet_name": n, **reg_data.get(n, {"subject_name": "", "subject_code": "", "total_marks": 0, "pass_marks": 0, "exam_type": ""})} for n in all_sheets if n != "_registry"]
+            return [
+                {"sheet_name": n, **reg_data.get(n, {
+                    "subject_name": "", "subject_code": "", "total_marks": 0,
+                    "pass_marks": 0, "exam_type": "", "section": "", "academic_year": "",
+                    "branch": "", "created_at": ""
+                })}
+                for n in all_sheets if n not in ("_registry", "All Results", "Sheet1")
+            ]
         except Exception as e:
             print(f"Error listing worksheets: {e}"); return []
+
+    def get_sheet_results(self, sheet_name: str) -> List[Dict]:
+        """Get all rows from a specific sheet."""
+        if not self.results_client or not settings.RESULTS_DB_SHEET_ID: return []
+        try:
+            sp = self.results_client.open_by_key(settings.RESULTS_DB_SHEET_ID)
+            ws = sp.worksheet(sheet_name)
+            return ws.get_all_records()
+        except Exception as e:
+            print(f"Error reading sheet {sheet_name}: {e}"); return []
+
+    def get_sheet_stats(self, sheet_name: str) -> Dict:
+        """Get pass/fail stats for a specific sheet."""
+        rows = self.get_sheet_results(sheet_name)
+        if not rows:
+            return {"total": 0, "passed": 0, "failed": 0, "pass_pct": 0, "avg": 0, "highest": 0, "lowest": 0}
+        total, passed, failed = len(rows), 0, 0
+        marks = []
+        for r in rows:
+            st = str(r.get("Status", "")).upper()
+            if st == "PASS": passed += 1
+            elif st == "FAIL": failed += 1
+            # Grand total column key varies by marks - try common keys
+            for key in ["Grand Total (/60)", "Grand Total (/100)", "Grand Total"]:
+                val = r.get(key)
+                if val is not None:
+                    try: marks.append(int(val)); break
+                    except: pass
+        return {
+            "total": total, "passed": passed, "failed": failed,
+            "pass_pct": round((passed / total) * 100, 1) if total else 0,
+            "avg": round(sum(marks) / len(marks), 1) if marks else 0,
+            "highest": max(marks) if marks else 0,
+            "lowest": min(marks) if marks else 0,
+        }
 
     def restyle_all_sheets(self) -> Dict:
         styled, errors = 0, []
@@ -316,14 +383,13 @@ class GoogleSheetsService:
                 for ws in sp.worksheets():
                     try:
                         sid = _get_sheet_id(ws)
-                        if ws.title == "_registry":
-                            reqs.extend(_build_header_fmt(sid, 6)); styled += 1; continue
                         vals = ws.get_all_values()
                         if not vals: continue
                         cc = len(vals[0]) if vals[0] else len(BASE_HEADERS)
                         reqs.extend(_build_header_fmt(sid, cc))
+                        # Status column is index 13 (0-based) in simplified headers
                         for ri in range(1, len(vals)):
-                            st = vals[ri][10] if len(vals[ri]) > 10 else ""
+                            st = vals[ri][13] if len(vals[ri]) > 13 else ""
                             if st.upper() in ("PASS", "FAIL"):
                                 reqs.append(_build_row_color(sid, ri, cc, st))
                         styled += 1

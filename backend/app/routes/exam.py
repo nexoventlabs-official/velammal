@@ -79,6 +79,11 @@ async def start_exam_session(config: ExamConfig):
     fmt = get_exam_format(config.total_marks)
     config.exam_type = fmt["exam_type"]
     session_id = str(uuid.uuid4())
+
+    # Auto-create Google Sheet for this session based on teacher's selections
+    sheet_result = sheets_service.get_or_create_session_worksheet(config.model_dump())
+    auto_sheet_name = sheet_result.get("sheet_name") or config.result_sheet
+
     active_sessions[session_id] = {
         "config": config.model_dump(),
         "format": fmt,
@@ -86,7 +91,7 @@ async def start_exam_session(config: ExamConfig):
         "current_student_pages": [],
         "status": "active",
         "created_at": datetime.now().isoformat(),
-        "result_sheet": config.result_sheet,
+        "result_sheet": auto_sheet_name,
         "reg_prefix": config.reg_prefix,
     }
     return {
@@ -95,6 +100,8 @@ async def start_exam_session(config: ExamConfig):
         "message": f"Session started for {config.subject_name} ({config.subject_code})",
         "config": config.model_dump(),
         "format": fmt,
+        "result_sheet": auto_sheet_name,
+        "sheet_created": sheet_result.get("success", False),
     }
 
 
@@ -227,10 +234,11 @@ async def complete_student_marks(
     result = ExamResult(
         register_number=register_number,
         student_name=student_data["student_name"],
-        email=student_data["email"],
+        email=student_data.get("email", ""),
         section=student_data["section"],
         academic_year=config.get("academic_year", ""),
         year=config.get("year", ""),
+        branch=student_data.get("branch", config.get("branch", "")),
         subject_name=config["subject_name"],
         subject_code=config["subject_code"],
         total_marks=config["total_marks"],
