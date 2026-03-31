@@ -38,24 +38,43 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 # Supports both raw JSON and base64-encoded JSON
 if settings.RESULTS_CREDENTIALS_JSON:
     creds_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), settings.RESULTS_CREDENTIALS_FILE)
+    print(f"Attempting to write credentials to: {creds_path}")
+    print(f"RESULTS_CREDENTIALS_JSON length: {len(settings.RESULTS_CREDENTIALS_JSON)}")
     try:
         import base64
         creds_str = settings.RESULTS_CREDENTIALS_JSON.strip()
+        creds_data = None
         
         # Try base64 decode first (preferred for Render to avoid escape issues)
         try:
+            # Add padding if needed
+            padding = 4 - len(creds_str) % 4
+            if padding != 4:
+                creds_str += '=' * padding
             decoded = base64.b64decode(creds_str).decode('utf-8')
             creds_data = json.loads(decoded)
-            print("✓ Decoded base64 credentials")
-        except:
+            print("✓ Decoded base64 credentials successfully")
+        except Exception as b64_err:
+            print(f"Base64 decode failed: {b64_err}, trying raw JSON...")
             # Fall back to raw JSON
-            creds_data = json.loads(creds_str)
-            print("✓ Parsed raw JSON credentials")
+            try:
+                creds_data = json.loads(settings.RESULTS_CREDENTIALS_JSON)
+                print("✓ Parsed raw JSON credentials")
+            except Exception as json_err:
+                print(f"Raw JSON parse also failed: {json_err}")
         
-        with open(creds_path, "w") as f:
-            json.dump(creds_data, f)
-        print(f"✓ Wrote Google credentials to {creds_path}")
-    except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid RESULTS_CREDENTIALS_JSON: {e}")
+        if creds_data:
+            with open(creds_path, "w") as f:
+                json.dump(creds_data, f)
+            print(f"✓ Wrote Google credentials to {creds_path}")
+            # Verify file was written
+            if os.path.exists(creds_path):
+                print(f"✓ Verified credentials file exists: {os.path.getsize(creds_path)} bytes")
+        else:
+            print("ERROR: Could not parse credentials from env var")
     except Exception as e:
         print(f"ERROR: Could not write credentials file: {e}")
+        import traceback
+        traceback.print_exc()
+else:
+    print("No RESULTS_CREDENTIALS_JSON env var set")
