@@ -38,10 +38,19 @@ async def health_check():
     from app.services.google_sheets import sheets_service
     from app.services.student_db import student_db
     
+    spreadsheet_name = None
+    try:
+        if sheets_service.spreadsheet:
+            spreadsheet_name = sheets_service.spreadsheet.title
+    except:
+        pass
+    
     return {
         "status": "healthy",
         "service": "ExamScan AI",
         "connections": {
+            "spreadsheet": sheets_service.spreadsheet is not None,
+            "spreadsheet_name": spreadsheet_name,
             "results_db": sheets_service.results_db is not None,
             "results_client": sheets_service.results_client is not None,
             "mongodb": student_db.db is not None,
