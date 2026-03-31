@@ -81,24 +81,57 @@ def _style_row(ws, row_number, col_count, status):
         print(f"Warning: row style failed: {e}")
 
 def _build_client(creds_filename):
+    """Build gspread client. Tries: 1) env var JSON/base64, 2) file on disk."""
+    import base64
+    
+    # Method 1: Try loading from env var (for Render deployment)
+    creds_json_env = settings.RESULTS_CREDENTIALS_JSON
+    if creds_json_env:
+        print("Attempting to load credentials from RESULTS_CREDENTIALS_JSON env var...")
+        try:
+            creds_str = creds_json_env.strip()
+            creds_dict = None
+            
+            # Try base64 decode first
+            try:
+                padding = 4 - len(creds_str) % 4
+                if padding != 4:
+                    creds_str += '=' * padding
+                decoded = base64.b64decode(creds_str).decode('utf-8')
+                creds_dict = json.loads(decoded)
+                print("✓ Decoded base64 credentials from env var")
+            except:
+                # Try raw JSON
+                try:
+                    creds_dict = json.loads(creds_json_env)
+                    print("✓ Parsed raw JSON credentials from env var")
+                except:
+                    pass
+            
+            if creds_dict:
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
+                client = gspread.authorize(creds)
+                print(f"✓ Google Sheets client authorized from env var")
+                return client
+        except Exception as e:
+            print(f"Failed to load from env var: {e}")
+    
+    # Method 2: Try loading from file (for local development)
     creds_path = os.path.join(BACKEND_DIR, creds_filename)
-    print(f"Looking for credentials at: {creds_path}")
-    if not os.path.exists(creds_path):
-        print(f"ERROR: Credentials file not found: {creds_path}")
-        print(f"Current directory: {os.getcwd()}")
-        print(f"BACKEND_DIR: {BACKEND_DIR}")
-        print(f"Files in BACKEND_DIR: {os.listdir(BACKEND_DIR)[:10] if os.path.exists(BACKEND_DIR) else 'N/A'}")
-        return None
-    try:
-        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, SCOPES)
-        client = gspread.authorize(creds)
-        print(f"✓ Google Sheets client authorized successfully")
-        return client
-    except Exception as e:
-        print(f"ERROR authorizing Google Sheets: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    print(f"Looking for credentials file at: {creds_path}")
+    if os.path.exists(creds_path):
+        try:
+            creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, SCOPES)
+            client = gspread.authorize(creds)
+            print(f"✓ Google Sheets client authorized from file")
+            return client
+        except Exception as e:
+            print(f"ERROR authorizing from file: {e}")
+    else:
+        print(f"Credentials file not found: {creds_path}")
+    
+    print("ERROR: Could not load Google Sheets credentials from env var or file")
+    return None
 
 
 class GoogleSheetsService:
