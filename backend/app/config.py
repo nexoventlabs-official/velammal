@@ -37,10 +37,13 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 # write it to a file so gspread can use it
 if settings.RESULTS_CREDENTIALS_JSON:
     creds_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), settings.RESULTS_CREDENTIALS_FILE)
-    if not os.path.exists(creds_path):
-        try:
-            with open(creds_path, "w") as f:
-                f.write(settings.RESULTS_CREDENTIALS_JSON)
-            print(f"Wrote credentials from env to {creds_path}")
-        except Exception as e:
-            print(f"WARNING: Could not write credentials file: {e}")
+    try:
+        # Parse the JSON to validate it, then write
+        creds_data = json.loads(settings.RESULTS_CREDENTIALS_JSON)
+        with open(creds_path, "w") as f:
+            json.dump(creds_data, f)
+        print(f"✓ Wrote Google credentials to {creds_path}")
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid RESULTS_CREDENTIALS_JSON: {e}")
+    except Exception as e:
+        print(f"ERROR: Could not write credentials file: {e}")

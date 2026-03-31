@@ -82,11 +82,23 @@ def _style_row(ws, row_number, col_count, status):
 
 def _build_client(creds_filename):
     creds_path = os.path.join(BACKEND_DIR, creds_filename)
+    print(f"Looking for credentials at: {creds_path}")
     if not os.path.exists(creds_path):
-        print(f"WARNING: Credentials not found: {creds_path}")
+        print(f"ERROR: Credentials file not found: {creds_path}")
+        print(f"Current directory: {os.getcwd()}")
+        print(f"BACKEND_DIR: {BACKEND_DIR}")
+        print(f"Files in BACKEND_DIR: {os.listdir(BACKEND_DIR)[:10] if os.path.exists(BACKEND_DIR) else 'N/A'}")
         return None
-    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, SCOPES)
-    return gspread.authorize(creds)
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, SCOPES)
+        client = gspread.authorize(creds)
+        print(f"✓ Google Sheets client authorized successfully")
+        return client
+    except Exception as e:
+        print(f"ERROR authorizing Google Sheets: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 class GoogleSheetsService:
