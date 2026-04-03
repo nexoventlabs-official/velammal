@@ -27,6 +27,7 @@ export const completeStudent = (sessionId, data) => {
   formData.append('part_a_total', data.part_a_total || 0)
   formData.append('part_bc_total', data.part_bc_total || 0)
   formData.append('section_marks_json', JSON.stringify(data.section_marks || {}))
+  formData.append('co_marks_json', JSON.stringify(data.co_marks || {}))
   return api.post(`/exam/complete-student/${sessionId}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

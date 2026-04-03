@@ -193,6 +193,7 @@ async def complete_student_marks(
     part_a_total: int = Form(0),
     part_bc_total: int = Form(0),
     section_marks_json: str = Form("{}"),
+    co_marks_json: str = Form("{}"),
 ):
     """
     Complete processing for one student.
@@ -230,6 +231,12 @@ async def complete_student_marks(
     # Determine pass/fail
     status = "PASS" if marks_obtained >= config["pass_marks"] else "FAIL"
 
+    # Parse CO marks from JSON
+    try:
+        co_marks = json.loads(co_marks_json)
+    except:
+        co_marks = {}
+
     # Create result record with section-wise data
     result = ExamResult(
         register_number=register_number,
@@ -245,8 +252,11 @@ async def complete_student_marks(
         marks_obtained=marks_obtained,
         pass_marks=config["pass_marks"],
         status=status,
+        exam_pattern=config.get("exam_pattern", ""),
+        selected_cos=config.get("selected_cos", []),
         part_a_total=part_a_total,
         part_bc_total=part_bc_total,
+        co_marks=co_marks,
         section_marks_json=section_marks_json,
     )
 

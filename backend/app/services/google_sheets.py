@@ -18,13 +18,14 @@ SCOPES = [
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-# Column headers — 100 marks only
+# Column headers — 100 marks only, with Exam Pattern and CO columns
 BASE_HEADERS = [
     "S.No", "Register Number", "Student Name", "Section",
     "Academic Year", "Year/Batch", "Department",
-    "Subject Name", "Subject Code",
+    "Subject Name", "Subject Code", "Exam Pattern",
     "Part A (/20)", "Part B&C (/80)",
     "Grand Total (/100)", "Pass Marks", "Status",
+    "CO1", "CO2", "CO3", "CO4", "CO5",
 ]
 
 # ── Formatting colors ──
@@ -178,7 +179,8 @@ class GoogleSheetsService:
             return 0
 
     def _result_row(self, r: ExamResult, sno: int = 0) -> list:
-        """Build a simplified flat row: S.No + student info + section totals only."""
+        """Build a flat row with exam pattern and CO marks."""
+        co_marks = getattr(r, 'co_marks', {}) or {}
         return [
             str(sno) if sno else "",
             r.register_number,
@@ -189,11 +191,17 @@ class GoogleSheetsService:
             getattr(r, 'branch', ''),
             r.subject_name,
             r.subject_code,
+            getattr(r, 'exam_pattern', ''),
             str(r.part_a_total),
             str(r.part_bc_total),
             str(r.marks_obtained),
             str(r.pass_marks),
             r.status,
+            str(co_marks.get('CO1', '')),
+            str(co_marks.get('CO2', '')),
+            str(co_marks.get('CO3', '')),
+            str(co_marks.get('CO4', '')),
+            str(co_marks.get('CO5', '')),
         ]
 
     def save_result(self, result: ExamResult) -> bool:

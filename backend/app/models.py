@@ -42,6 +42,8 @@ class ExamConfig(BaseModel):
     subject_code: str
     total_marks: int = 100    # 100 marks only
     pass_marks: int
+    exam_pattern: str = ""    # "MID 1", "MID 2", "Model"
+    selected_cos: List[str] = []  # ["CO1", "CO2", ...]
     exam_type: str = ""
     result_sheet: str = ""
     reg_prefix: str = ""
@@ -80,8 +82,11 @@ class ExamResult(BaseModel):
     marks_obtained: int
     pass_marks: int
     status: str
+    exam_pattern: str = ""    # "MID 1", "MID 2", "Model"
+    selected_cos: List[str] = []  # ["CO1", "CO2", ...]
     part_a_total: int = 0
     part_bc_total: int = 0
+    co_marks: Dict[str, int] = {}  # {"CO1": 15, "CO2": 20, ...}
     section_marks_json: str = "{}"
 
 

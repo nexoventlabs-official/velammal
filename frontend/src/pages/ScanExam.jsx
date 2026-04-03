@@ -87,6 +87,10 @@ export default function ScanExam() {
     pass_marks: 40,
   })
 
+  // Exam pattern & Course Outcomes
+  const [examPattern, setExamPattern] = useState('')  // 'MID 1', 'MID 2', 'Model'
+  const [selectedCOs, setSelectedCOs] = useState([])  // ['CO1', 'CO2', ...]
+
   // Result sheets from the marks DB (for dropdown)
   const [resultSheets, setResultSheets] = useState([])
   const [selectedResultSheet, setSelectedResultSheet] = useState(null)
@@ -136,7 +140,7 @@ export default function ScanExam() {
   // Fetch format when total_marks changes
   useEffect(() => {
     const tm = config.total_marks
-    if (tm === 60 || tm === 100) {
+    if (tm === 100) {
       getExamFormat(tm)
         .then((res) => {
           const fmt = res.data.format
@@ -319,6 +323,10 @@ export default function ScanExam() {
       toast.error('Please fill subject name and code')
       return
     }
+    if (!examPattern) {
+      toast.error('Please select exam pattern (MID 1, MID 2, or Model)')
+      return
+    }
     setLoading(true)
     try {
       const payload = {
@@ -330,6 +338,8 @@ export default function ScanExam() {
         subject_code: config.subject_code,
         total_marks: config.total_marks,
         pass_marks: config.pass_marks,
+        exam_pattern: examPattern,
+        selected_cos: selectedCOs,
         result_sheet: selectedResultSheet?.sheet_name || '',
         reg_prefix: regPrefix,
       }
@@ -432,12 +442,22 @@ export default function ScanExam() {
     if (!regNumber) { toast.error('Enter registration number'); return }
     setLoading(true)
     try {
+      // Build CO marks totals from selected COs
+      const coTotals = {}
+      if (selectedCOs.length > 0 && coMarks) {
+        for (const co of selectedCOs) {
+          // Sum all parts for each CO (e.g. CO-1 -> PART A + PART B + PART C)
+          const coData = coMarks[co] || coMarks[co.replace('CO', 'CO-')] || {}
+          coTotals[co] = Object.values(coData).reduce((s, v) => s + (parseInt(v) || 0), 0)
+        }
+      }
       const res = await completeStudent(sessionId, {
         register_number: regNumber,
         marks_obtained: grandTotal,
         part_a_total: partATotal,
         part_bc_total: partBCTotal,
         section_marks: { part_a: partAMarks, part_bc: partBCMarks, course_outcomes: coMarks },
+        co_marks: coTotals,
       })
       setProcessedStudents((prev) => [...prev, res.data.result])
       toast.success(res.data.message)
@@ -481,6 +501,8 @@ export default function ScanExam() {
     setAcademicYear('')
     setSessionId(null)
     setConfig({ subject_name: '', subject_code: '', total_marks: 100, pass_marks: 40 })
+    setExamPattern('')
+    setSelectedCOs([])
     setSelectedResultSheet(null)
     setStudentExcelFile(null)
     setStudentUploadCount(0)
@@ -798,23 +820,53 @@ export default function ScanExam() {
                     <input className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. CS301" value={config.subject_code} onChange={(e) => { setConfig({ ...config, subject_code: e.target.value }); setSelectedResultSheet(null) }} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Total Marks *</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Exam Pattern *</label>
                     <select
                       className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                      value={config.total_marks}
-                      onChange={(e) => {
-                        const tm = parseInt(e.target.value)
-                        setConfig({ ...config, total_marks: tm, pass_marks: 40 })
-                        setSelectedResultSheet(null)
-                      }}
+                      value={examPattern}
+                      onChange={(e) => setExamPattern(e.target.value)}
                     >
-                      <option value={100}>100 — Model Exam</option>
+                      <option value="">— Select Pattern —</option>
+                      <option value="MID 1">MID 1</option>
+                      <option value="MID 2">MID 2</option>
+                      <option value="Model">Model</option>
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Pass Marks *</label>
                     <input type="number" className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" value={config.pass_marks} onChange={(e) => setConfig({ ...config, pass_marks: parseInt(e.target.value) || 0 })} />
                   </div>
+                </div>
+
+                {/* Course Outcomes Selection */}
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Select Course Outcomes (COs)</label>
+                  <div className="flex flex-wrap gap-3">
+                    {['CO1', 'CO2', 'CO3', 'CO4', 'CO5'].map((co) => (
+                      <label key={co} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border cursor-pointer transition-all text-sm font-medium ${
+                        selectedCOs.includes(co)
+                          ? 'bg-indigo-50 border-indigo-400 text-indigo-700 shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          checked={selectedCOs.includes(co)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCOs([...selectedCOs, co])
+                            } else {
+                              setSelectedCOs(selectedCOs.filter((c) => c !== co))
+                            }
+                          }}
+                        />
+                        {co}
+                      </label>
+                    ))}
+                  </div>
+                  {selectedCOs.length > 0 && (
+                    <p className="mt-2 text-xs text-indigo-600">Selected: {selectedCOs.join(', ')}</p>
+                  )}
                 </div>
 
                 {/* Student Excel Upload */}
