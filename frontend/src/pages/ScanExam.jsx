@@ -83,8 +83,8 @@ export default function ScanExam() {
   const [config, setConfig] = useState({
     subject_name: '',
     subject_code: '',
-    total_marks: 60,
-    pass_marks: 24,
+    total_marks: 100,
+    pass_marks: 40,
   })
 
   // Result sheets from the marks DB (for dropdown)
@@ -480,7 +480,7 @@ export default function ScanExam() {
     setSelectedSection('')
     setAcademicYear('')
     setSessionId(null)
-    setConfig({ subject_name: '', subject_code: '', total_marks: 60, pass_marks: 24 })
+    setConfig({ subject_name: '', subject_code: '', total_marks: 100, pass_marks: 40 })
     setSelectedResultSheet(null)
     setStudentExcelFile(null)
     setStudentUploadCount(0)
@@ -755,8 +755,8 @@ export default function ScanExam() {
                           setConfig({
                             subject_name: sheet.subject_name,
                             subject_code: sheet.subject_code,
-                            total_marks: sheet.total_marks || 60,
-                            pass_marks: sheet.pass_marks || (sheet.total_marks <= 60 ? 24 : 40),
+                            total_marks: sheet.total_marks || 100,
+                            pass_marks: sheet.pass_marks || 40,
                           })
                         } else {
                           setSelectedResultSheet(null)
@@ -804,11 +804,10 @@ export default function ScanExam() {
                       value={config.total_marks}
                       onChange={(e) => {
                         const tm = parseInt(e.target.value)
-                        setConfig({ ...config, total_marks: tm, pass_marks: tm === 60 ? 24 : 40 })
+                        setConfig({ ...config, total_marks: tm, pass_marks: 40 })
                         setSelectedResultSheet(null)
                       }}
                     >
-                      <option value={60}>60 — Internal Assessment</option>
                       <option value={100}>100 — Model Exam</option>
                     </select>
                   </div>

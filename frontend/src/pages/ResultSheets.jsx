@@ -106,8 +106,8 @@ export default function ResultSheets() {
         academic_year: scanModal.academic_year || '',
         subject_name: scanModal.subject_name || '',
         subject_code: scanModal.subject_code || '',
-        total_marks: scanModal.total_marks || 60,
-        pass_marks: scanModal.pass_marks || 24,
+        total_marks: scanModal.total_marks || 100,
+        pass_marks: scanModal.pass_marks || 40,
         result_sheet: scanModal.sheet_name,
       }
       const res = await startSession(config)

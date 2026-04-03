@@ -2,33 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 
 
-# ── Exam format templates based on total marks ──
-# 60-mark Internal Assessment format
-FORMAT_60 = {
-    "exam_type": "Internal Assessment",
-    "total_marks": 60,
-    "part_a": {
-        "label": "PART - A",
-        "questions": 5,          # Q1..Q5
-        "marks_each": 2,
-        "max_marks": 10,
-    },
-    "part_bc": {
-        "label": "PART - B & C",
-        "questions_start": 6,    # Q6..Q9
-        "questions_end": 9,
-        "sub_parts": ["a", "b"],
-        "mark_columns": ["i", "ii", "iii"],
-        "max_marks": 50,
-    },
-    "course_outcomes": {
-        "count": 2,
-        "labels": ["CO-4", "CO-5"],
-        "columns": ["PART A", "PART B", "PART C", "TOTAL"],
-    },
-}
-
-# 100-mark Model Exam format
+# ── Exam format template — 100 marks only ──
 FORMAT_100 = {
     "exam_type": "Model Exam",
     "total_marks": 100,
@@ -54,10 +28,8 @@ FORMAT_100 = {
 }
 
 
-def get_exam_format(total_marks: int) -> dict:
-    """Return the exam section template for a given total marks."""
-    if total_marks <= 60:
-        return FORMAT_60
+def get_exam_format(total_marks: int = 100) -> dict:
+    """Return the exam section template (100 marks only)."""
     return FORMAT_100
 
 
@@ -68,7 +40,7 @@ class ExamConfig(BaseModel):
     academic_year: str = ""   # "1st Year", "2nd Year", etc.
     subject_name: str
     subject_code: str
-    total_marks: int          # 60 or 100
+    total_marks: int = 100    # 100 marks only
     pass_marks: int
     exam_type: str = ""
     result_sheet: str = ""

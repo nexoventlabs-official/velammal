@@ -18,20 +18,14 @@ SCOPES = [
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-# Simplified column headers - section totals only (no individual question marks)
-def _build_simple_headers(total_marks: int) -> List[str]:
-    fmt = get_exam_format(total_marks)
-    part_a_max = fmt["part_a"]["max_marks"]
-    part_bc_max = fmt["part_bc"]["max_marks"]
-    return [
-        "S.No", "Register Number", "Student Name", "Section",
-        "Academic Year", "Year/Batch", "Department",
-        "Subject Name", "Subject Code",
-        f"Part A (/{part_a_max})", f"Part B&C (/{part_bc_max})",
-        f"Grand Total (/{total_marks})", "Pass Marks", "Status",
-    ]
-
-BASE_HEADERS = _build_simple_headers(60)  # default for backward compat
+# Column headers — 100 marks only
+BASE_HEADERS = [
+    "S.No", "Register Number", "Student Name", "Section",
+    "Academic Year", "Year/Batch", "Department",
+    "Subject Name", "Subject Code",
+    "Part A (/20)", "Part B&C (/80)",
+    "Grand Total (/100)", "Pass Marks", "Status",
+]
 
 # ── Formatting colors ──
 HEADER_BG = {"red": 0.16, "green": 0.22, "blue": 0.43}
@@ -156,21 +150,20 @@ class GoogleSheetsService:
                     print("Created 'All Results' worksheet")
                 
                 # Ensure headers exist
-                self._ensure_headers(self.results_db, 60)
+                self._ensure_headers(self.results_db)
                 print(f"Results DB ready: '{self.results_db.title}'")
             except Exception as e:
                 print(f"ERROR connecting to Results DB: {e}")
                 import traceback
                 traceback.print_exc()
 
-    def _ensure_headers(self, ws, total_marks: int = 60):
+    def _ensure_headers(self, ws):
         """Ensure worksheet has proper headers."""
         try:
             existing = ws.row_values(1)
             if not existing or len(existing) < 5:
-                headers = _build_simple_headers(total_marks)
-                ws.update('A1', [headers])
-                _style_header(ws, len(headers))
+                ws.update('A1', [BASE_HEADERS])
+                _style_header(ws, len(BASE_HEADERS))
                 print(f"Headers written to '{ws.title}'")
         except Exception as e:
             print(f"Error ensuring headers: {e}")
@@ -209,8 +202,7 @@ class GoogleSheetsService:
             print("ERROR: results_db not connected")
             return False
         try:
-            # Ensure headers exist first
-            self._ensure_headers(self.results_db, result.total_marks)
+            self._ensure_headers(self.results_db)
             
             sno = self._get_row_count(self.results_db) + 1
             row = self._result_row(result, sno)
@@ -232,8 +224,7 @@ class GoogleSheetsService:
             return False
         try:
             ws = self.spreadsheet.worksheet(sheet_name)
-            # Ensure headers exist
-            self._ensure_headers(ws, result.total_marks)
+            self._ensure_headers(ws)
             
             sno = self._get_row_count(ws) + 1
             row = self._result_row(result, sno)
@@ -254,10 +245,9 @@ class GoogleSheetsService:
     def _create_and_save(self, sheet_name: str, result: ExamResult) -> bool:
         """Create worksheet if not exists and save result."""
         try:
-            headers = _build_simple_headers(result.total_marks)
-            ws = self.spreadsheet.add_worksheet(title=sheet_name, rows=300, cols=len(headers) + 2)
-            ws.update('A1', [headers])
-            _style_header(ws, len(headers))
+            ws = self.spreadsheet.add_worksheet(title=sheet_name, rows=300, cols=len(BASE_HEADERS) + 2)
+            ws.update('A1', [BASE_HEADERS])
+            _style_header(ws, len(BASE_HEADERS))
             
             row = self._result_row(result, 1)
             ws.append_row(row, value_input_option='USER_ENTERED')
@@ -336,46 +326,41 @@ class GoogleSheetsService:
             return None
 
     def get_or_create_session_worksheet(self, config: dict) -> Dict:
-        """Auto-create a worksheet for a scanning session based on config (called at session start)."""
+        """Get or create a worksheet based on Department + Year + Section.
+        One sheet per dept+year+section combo; different subjects go as rows."""
         if not self.spreadsheet:
             print("ERROR: Spreadsheet not connected for session worksheet")
             return {"success": False, "sheet_name": None, "message": "Results DB not connected"}
         try:
             import datetime
-            subject_code = config.get("subject_code", "")
-            subject_name = config.get("subject_name", "")
             section = config.get("section", "")
+            branch = config.get("branch", "")       # department
+            year = config.get("year", "")            # batch year
             academic_year = config.get("academic_year", "")
-            branch = config.get("branch", "")
-            total_marks = int(config.get("total_marks", 60))
-            pass_marks = int(config.get("pass_marks", 24))
-            exam_type = config.get("exam_type", "Internal Assessment")
 
-            # Sheet name: SubjectCode - SubjectName - Section (AcademicYear)
-            name = f"{subject_code} - {subject_name} - {section} ({academic_year})"
+            # Sheet name: Department - Year - Section
+            name = f"{branch} - {year} - {section}"
             if len(name) > 95:
                 name = name[:95]
-            # Clean invalid chars
             name = name.replace("/", "-").replace("\\", "-")
 
             existing_titles = [w.title for w in self.spreadsheet.worksheets()]
             if name in existing_titles:
-                print(f"Sheet '{name}' already exists")
+                print(f"Sheet '{name}' already exists, reusing")
                 return {"success": True, "sheet_name": name, "message": "Sheet already exists"}
 
             # Create new worksheet with headers
-            headers = _build_simple_headers(total_marks)
-            ws = self.spreadsheet.add_worksheet(title=name, rows=300, cols=len(headers) + 2)
-            ws.update('A1', [headers])
-            _style_header(ws, len(headers))
+            ws = self.spreadsheet.add_worksheet(title=name, rows=500, cols=len(BASE_HEADERS) + 2)
+            ws.update('A1', [BASE_HEADERS])
+            _style_header(ws, len(BASE_HEADERS))
             print(f"Created session worksheet: '{name}'")
 
             # Register in _registry
             reg = self._get_registry()
             if reg:
                 reg.append_row([
-                    name, subject_name, subject_code, str(total_marks), str(pass_marks),
-                    exam_type, section, academic_year, branch,
+                    name, "", "", "100", str(config.get("pass_marks", 40)),
+                    "Model Exam", section, academic_year, branch,
                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                 ], value_input_option='USER_ENTERED')
             return {"success": True, "sheet_name": name, "message": f"Sheet '{name}' created"}
@@ -388,23 +373,24 @@ class GoogleSheetsService:
             return {"success": False, "message": "Results DB not connected"}
         try:
             import datetime
-            name = f"{subject_code} - {subject_name} ({total_marks}m)"
+            # Sheet name based on department + year + section
+            name = f"{branch} - {academic_year} - {section}" if branch else f"{subject_code} - {subject_name}"
+            name = name.replace("/", "-").replace("\\", "-")
             if name in [w.title for w in self.spreadsheet.worksheets()]:
-                return {"success": False, "message": f"'{name}' already exists"}
-            headers = _build_simple_headers(total_marks)
-            ws = self.spreadsheet.add_worksheet(title=name, rows=300, cols=len(headers) + 2)
-            ws.update('A1', [headers])
-            _style_header(ws, len(headers))
-            exam_type = "Internal Assessment" if total_marks <= 60 else "Model Exam"
-            pass_marks = 24 if total_marks <= 60 else 40
+                return {"success": True, "message": f"'{name}' already exists", "sheet_name": name,
+                        "subject_name": subject_name, "subject_code": subject_code,
+                        "total_marks": 100, "pass_marks": 40, "exam_type": "Model Exam"}
+            ws = self.spreadsheet.add_worksheet(title=name, rows=500, cols=len(BASE_HEADERS) + 2)
+            ws.update('A1', [BASE_HEADERS])
+            _style_header(ws, len(BASE_HEADERS))
             reg = self._get_registry()
             if reg:
-                reg.append_row([name, subject_name, subject_code, str(total_marks), str(pass_marks),
-                                 exam_type, section, academic_year, branch,
+                reg.append_row([name, subject_name, subject_code, "100", "40",
+                                 "Model Exam", section, academic_year, branch,
                                  datetime.datetime.now().strftime("%Y-%m-%d %H:%M")], value_input_option='USER_ENTERED')
             return {"success": True, "message": f"'{name}' created", "sheet_name": name,
                     "subject_name": subject_name, "subject_code": subject_code,
-                    "total_marks": total_marks, "pass_marks": pass_marks, "exam_type": exam_type}
+                    "total_marks": 100, "pass_marks": 40, "exam_type": "Model Exam"}
         except Exception as e:
             return {"success": False, "message": str(e)}
 
@@ -458,8 +444,7 @@ class GoogleSheetsService:
             st = str(r.get("Status", "")).upper()
             if st == "PASS": passed += 1
             elif st == "FAIL": failed += 1
-            # Grand total column key varies by marks - try common keys
-            for key in ["Grand Total (/60)", "Grand Total (/100)", "Grand Total"]:
+            for key in ["Grand Total (/100)", "Grand Total"]:
                 val = r.get(key)
                 if val is not None:
                     try: marks.append(int(val)); break

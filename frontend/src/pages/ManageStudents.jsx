@@ -17,7 +17,7 @@ export default function ManageSheets() {
   const [loading, setLoading] = useState(false)
   const [subjectName, setSubjectName] = useState('')
   const [subjectCode, setSubjectCode] = useState('')
-  const [totalMarks, setTotalMarks] = useState(60)
+  const [totalMarks, setTotalMarks] = useState(100)
   const [worksheets, setWorksheets] = useState([])
   const [connectionStatus, setConnectionStatus] = useState(null)
 
@@ -123,7 +123,6 @@ export default function ManageSheets() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Total Marks *</label>
               <select className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                 value={totalMarks} onChange={(e) => setTotalMarks(parseInt(e.target.value))}>
-                <option value={60}>60 — Internal Assessment</option>
                 <option value={100}>100 — Model Exam</option>
               </select>
             </div>
