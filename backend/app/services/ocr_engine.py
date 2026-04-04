@@ -52,80 +52,74 @@ REGISTRATION NUMBER FORMAT:
   Return the FULL registration number including the prefix.
 """
 
-    prompt = f"""You are an expert OCR system for Indian university exam answer sheets (Velammal Institute of Technology style).
-Analyze this exam sheet image very carefully. The sheet has handwritten marks in RED/PINK ink.
-
-This is a **{fmt['exam_type']}** exam — maximum **{fmt['total_marks']} marks**.
-
-CRITICAL INSTRUCTIONS — READ THESE CAREFULLY:
-=============================================
+    prompt = f"""You are an expert OCR system for Indian university exam answer sheets (Velammal Institute of Technology).
+The sheet has handwritten marks in RED/PINK ink. This is a **{fmt['exam_type']}** exam — max **{fmt['total_marks']} marks**.
 {reg_hint}
-STEP 1: READ THE WRITTEN TOTALS FIRST — these are GROUND TRUTH:
-  - "Total" row at bottom of Part A Marks column → "part_a_total_written".
-  - Last value in the "Total Marks" column of Part B&C (bottom row) → "part_bc_total_written".
-  - Circled Grand Total (usually in red, often shown as X/{fmt['total_marks']}) → "grand_total_written".
-  READ EACH DIGIT OF THESE TOTALS VERY CAREFULLY. Double-check: "17" vs "11" vs "7", "57" vs "51".
+=== STEP 1: READ WRITTEN TOTALS (GROUND TRUTH) ===
+These are the MOST RELIABLE numbers — read each digit very carefully:
+  - "Total" row at bottom of PART A column → "part_a_total_written"
+  - Bottom of "Total Marks" column in Part B&C → "part_bc_total_written"
+  - Circled Grand Total (red, shown as X/{fmt['total_marks']}) → "grand_total_written"
+  COMMON CONFUSIONS: "17" vs "11", "57" vs "51" vs "57", "8" vs "3". Count the strokes carefully.
 
-STEP 2: READ PART A MARKS (Q1 to Q{part_a['questions']}):
-  - Each question: 0 to {part_a['marks_each']} marks max.
-  - Empty cell = 0. Dash/line = 0.
-  - IMPORTANT: A small tick mark (✓) next to a number is NOT an extra digit.
-  - Common confusion: "1" vs "7", "0" vs "6". If the cell appears empty, use 0.
-  - The SUM of Q1..Q{part_a['questions']} MUST equal part_a_total_written.
+=== STEP 2: PART A (Q1-Q{part_a['questions']}, each 0-{part_a['marks_each']}) ===
+  - Read the "Marks" column for each question row.
+  - Most students score {part_a['marks_each']} (full) or 0 on Part A. A score of 1 is less common.
+  - If a cell has a clear digit written in it, read that digit. Empty cell = 0.
+  - A tick mark (✓) next to a number is NOT an extra digit — ignore tick marks.
+  - VALIDATE: Sum of Q1..Q{part_a['questions']} MUST equal part_a_total_written.
 
-STEP 3: READ PART B & C MARKS (Q{part_bc['questions_start']} to Q{part_bc['questions_end']}):
-  *** THIS IS THE MOST CRITICAL SECTION — PAY CLOSE ATTENTION ***
+=== STEP 3: PART B & C (Q{part_bc['questions_start']}-Q{part_bc['questions_end']}) — MOST CRITICAL ===
 
-  SHEET LAYOUT for Part B&C:
-  Each question (Q{part_bc['questions_start']}..Q{part_bc['questions_end']}) has TWO ROWS on the sheet:
-    - Row labeled "a" → sub-part a (student attempted option a)
-    - Row labeled "b" → sub-part b (student attempted option b)
-  The "Sub" column on the sheet shows "a" or "b" for each row.
+  PHYSICAL LAYOUT — each question occupies TWO rows on the paper:
+  ┌──────────┬─────┬──────┬──────┬──────┬─────────────┐
+  │ Q No.    │ Sub │  i   │  ii  │ iii  │ Total Marks │
+  ├──────────┼─────┼──────┼──────┼──────┼─────────────┤
+  │ {part_bc['questions_start']}       │  a  │ ...  │ ...  │ ...  │    ...      │  ← FIRST row
+  │          │  b  │ ...  │ ...  │ ...  │             │  ← SECOND row
+  ├──────────┼─────┼──────┼──────┼──────┼─────────────┤
+  │ {part_bc['questions_start']+1}       │  a  │ ...  │ ...  │ ...  │    ...      │
+  │          │  b  │ ...  │ ...  │ ...  │             │
+  └──────────┴─────┴──────┴──────┴──────┴─────────────┘
 
-  IMPORTANT RULES FOR a vs b:
-  - Students typically answer ONLY ONE of a or b per question (either a OR b, not both).
-  - If the "a" row has marks written in it, put those marks in Q__a_i, Q__a_ii, Q__a_iii.
-  - If the "b" row has marks written in it, put those marks in Q__b_i, Q__b_ii, Q__b_iii.
-  - If a row is BLANK/EMPTY, ALL its fields (i, ii, iii) must be 0.
-  - DO NOT default everything to sub-part "a". Carefully check WHICH ROW has the marks.
-  - The "Total Marks" column on the RIGHT shows the total for that question (a+b combined).
+  HOW TO READ EACH QUESTION:
+  1. Look at the FIRST row (labeled "a") — does it have marks written in the i/ii/iii columns?
+  2. Look at the SECOND row (labeled "b") — does it have marks written in the i/ii/iii columns?
+  3. Students answer ONLY ONE option (a OR b), so only ONE row will have marks.
+  4. The OTHER row will be BLANK (all zeros).
 
-  MARK COLUMNS:
-  - "i" is the primary marks column (usually contains the main mark).
-  - "ii" and "iii" are secondary — usually 0 unless the examiner split marks across columns.
-  - Most often, only "i" has a non-zero value.
+  CRITICAL: Do NOT put all marks in "a" by default! Many students answer "b" for some questions.
+  If the marks are written in the "b" row → use Q__b_i, Q__b_ii, Q__b_iii and set all a fields to 0.
+  If the marks are written in the "a" row → use Q__a_i, Q__a_ii, Q__a_iii and set all b fields to 0.
 
-  DIGIT READING TIPS:
-  - "11" (eleven) vs "1" vs "7" — look at stroke count.
-  - "8" vs "3" — check if the top loop is closed.
-  - "10" vs "16" vs "18" — check second digit carefully.
-  - If a cell is empty or has no writing, it is 0.
+  The "i" column has the main mark. "ii" and "iii" are usually 0.
+  VALIDATE: Sum of ALL Part B&C fields MUST equal part_bc_total_written.
 
-  The SUM of all Part B&C marks MUST equal part_bc_total_written.
+=== STEP 4: COURSE OUTCOMES (CO-1 to CO-{co['count']}) ===
+  Table at bottom with columns: PART A | PART B | PART C | TOTAL
+  - Read each column LEFT to RIGHT carefully. Do NOT confuse PART C with TOTAL.
+  - PART C is the THIRD column, TOTAL is the FOURTH (rightmost) column.
+  - VALIDATE: For each CO, PART A + PART B + PART C must equal TOTAL.
+  - PART A values are typically small (1-6), PART B values are medium (8-12), PART C can vary.
 
-STEP 4: READ COURSE OUTCOMES (CO-1 to CO-{co['count']}):
-  - Located at the bottom of the sheet in a separate table.
-  - Columns: PART A, PART B, PART C, TOTAL.
-  - Read each value carefully.
+=== STEP 5: FINAL VALIDATION ===
+  - Sum(Q1..Q{part_a['questions']}) == part_a_total_written
+  - Sum(all Part B&C marks) == part_bc_total_written
+  - part_a_total_written + part_bc_total_written == grand_total_written
+  - For each CO: PART A + PART B + PART C == TOTAL
+  - If mismatches: TRUST written totals and adjust individual values.
 
-STEP 5: VALIDATE ALL TOTALS:
-  - Sum(Q1..Q{part_a['questions']}) must == part_a_total_written
-  - Sum(all Part B&C fields) must == part_bc_total_written
-  - part_a_total_written + part_bc_total_written must == grand_total_written
-  - If mismatches exist, TRUST the written totals and adjust individual marks.
-
-RETURN ONLY A VALID JSON OBJECT (no markdown, no explanation, no code fences):
-
+RETURN ONLY valid JSON (no markdown, no code fences, no explanation):
 {{
   "registration_number": "<string or null>",
-  "part_a_total_written": <integer>,
-  "part_bc_total_written": <integer>,
-  "grand_total_written": <integer>,
+  "part_a_total_written": <int>,
+  "part_bc_total_written": <int>,
+  "grand_total_written": <int>,
   "part_a": {{"Q1": <int 0-{part_a['marks_each']}>, "Q2": <int>, ..., "Q{part_a['questions']}": <int>}},
   "part_bc": {{
     "Q{part_bc['questions_start']}a_i": <int>, "Q{part_bc['questions_start']}a_ii": <int>, "Q{part_bc['questions_start']}a_iii": <int>,
     "Q{part_bc['questions_start']}b_i": <int>, "Q{part_bc['questions_start']}b_ii": <int>, "Q{part_bc['questions_start']}b_iii": <int>,
-    ... for Q{part_bc['questions_start']} to Q{part_bc['questions_end']}, each with a_i, a_ii, a_iii, b_i, b_ii, b_iii
+    ... for Q{part_bc['questions_start']}-Q{part_bc['questions_end']}, each with a_i,a_ii,a_iii,b_i,b_ii,b_iii
   }},
   "course_outcomes": {{
     "{co['labels'][0]}": {{"PART A": <int>, "PART B": <int>, "PART C": <int>, "TOTAL": <int>}},
@@ -134,12 +128,11 @@ RETURN ONLY A VALID JSON OBJECT (no markdown, no explanation, no code fences):
   "confidence": <float 0.0-1.0>
 }}
 
-FINAL RULES:
-- Empty/blank/unreadable cell = 0.
-- For Part B&C: if marks are in row "b", put them in b_i/b_ii/b_iii and set a_i/a_ii/a_iii = 0. Vice versa.
-- Registration number: look for "REGISTER NUMBER" field.{f' Prefix is "{reg_prefix}".' if reg_prefix else ''}
-- Written totals are GROUND TRUTH — individual marks must add up to match them.
-- Return ONLY raw JSON. No markdown. No explanation. No code fences.
+RULES:
+- Empty/blank cell = 0.
+- Registration number: "REGISTER NUMBER" field.{f' Prefix is "{reg_prefix}".' if reg_prefix else ''}
+- Written totals are GROUND TRUTH.
+- Return ONLY raw JSON.
 """
     return prompt
 
@@ -258,12 +251,27 @@ def _validate_and_fix(data: dict, exam_format: dict) -> dict:
                 part_bc[key] = max(0, part_bc[key])
             part_bc_total = sum(part_bc.values())
 
-    # Course Outcomes
+    # Course Outcomes — validate PART A + PART B + PART C == TOTAL
     co = data.get("course_outcomes", {})
     for label in list(co.keys()):
         if isinstance(co[label], dict):
             for col in list(co[label].keys()):
                 co[label][col] = max(0, int(co[label].get(col, 0) or 0))
+            # Cross-validate: if TOTAL != sum of parts, fix it
+            pa = co[label].get("PART A", 0)
+            pb = co[label].get("PART B", 0)
+            pc = co[label].get("PART C", 0)
+            total = co[label].get("TOTAL", 0)
+            parts_sum = pa + pb + pc
+            if parts_sum != total and total > 0:
+                # If TOTAL looks correct (reasonable range) but PART C is wrong,
+                # recalculate PART C from TOTAL - PART A - PART B
+                expected_pc = total - pa - pb
+                if expected_pc >= 0:
+                    co[label]["PART C"] = expected_pc
+                else:
+                    # TOTAL might be wrong — recalculate from parts
+                    co[label]["TOTAL"] = parts_sum
 
     return {
         "registration_number": data.get("registration_number"),
