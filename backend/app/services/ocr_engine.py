@@ -107,11 +107,19 @@ These are the MOST RELIABLE numbers on the sheet — read each digit very carefu
   The TOTAL column always has a value. Do NOT confuse an empty PART C with TOTAL.
   Read TOTAL from the LAST column on the right.
 
+  DIGIT CONFUSION in CO table: "2" vs "3" — check if the top is open (2) or closed (3).
+  "4" vs "9" — check stroke direction. "11" vs "1" — count strokes.
+
+  VALIDATION: Sum of all CO PART A values should equal part_a_total_written ({part_a['max_marks']} max).
+  Sum of all CO TOTAL values should equal grand_total_written.
+
 === STEP 5: FINAL VALIDATION ===
   - Sum(Q1..Q{part_a['questions']}) == part_a_total_written
   - Sum(all Part B&C marks) == part_bc_total_written
   - part_a_total_written + part_bc_total_written == grand_total_written
   - For each CO: PART A + PART B + PART C should equal TOTAL
+  - Sum(all CO PART A) should equal part_a_total_written
+  - Sum(all CO TOTAL) should equal grand_total_written
 
 RETURN ONLY valid JSON (no markdown, no code fences, no explanation):
 {{
@@ -331,6 +339,49 @@ def _validate_and_fix(data: dict, exam_format: dict) -> dict:
                 co[label]["PART C"] = derived_pc
                 co[label]["TOTAL"] = pa + pb + derived_pc
 
+    # Cross-validate CO PART A sum against known Part A total
+    co_labels = [l for l in co if isinstance(co[l], dict)]
+    if co_labels and part_a_total > 0:
+        co_pa_sum = sum(co[l].get("PART A", 0) for l in co_labels)
+        if co_pa_sum != part_a_total and abs(co_pa_sum - part_a_total) <= 2:
+            diff = part_a_total - co_pa_sum
+            if diff > 0:
+                candidates = sorted(co_labels, key=lambda l: co[l].get("PART A", 0))
+            else:
+                candidates = sorted(co_labels, key=lambda l: co[l].get("PART A", 0), reverse=True)
+            remaining = abs(diff)
+            for l in candidates:
+                if remaining <= 0:
+                    break
+                adjustment = 1 if diff > 0 else -1
+                new_val = co[l]["PART A"] + adjustment
+                if new_val >= 0:
+                    co[l]["PART A"] = new_val
+                    co[l]["PART C"] = max(0, co[l]["TOTAL"] - co[l]["PART A"] - co[l]["PART B"])
+                    co[l]["TOTAL"] = co[l]["PART A"] + co[l]["PART B"] + co[l]["PART C"]
+                    remaining -= 1
+
+    # Cross-validate CO TOTAL sum against grand total
+    if co_labels and grand_total > 0:
+        co_total_sum = sum(co[l].get("TOTAL", 0) for l in co_labels)
+        if co_total_sum != grand_total and abs(co_total_sum - grand_total) <= 2:
+            diff = grand_total - co_total_sum
+            # Find the CO whose TOTAL deviates most from PA+PB (likely has wrong TOTAL read)
+            candidates = sorted(co_labels,
+                                key=lambda l: abs(co[l]["TOTAL"] - co[l]["PART A"] - co[l]["PART B"]),
+                                reverse=True)
+            remaining = abs(diff)
+            for l in candidates:
+                if remaining <= 0:
+                    break
+                adjustment = 1 if diff > 0 else -1
+                # Adjust the TOTAL itself, then re-derive PART C
+                new_total = co[l]["TOTAL"] + adjustment
+                if new_total >= co[l]["PART A"] + co[l]["PART B"]:
+                    co[l]["TOTAL"] = new_total
+                    co[l]["PART C"] = max(0, new_total - co[l]["PART A"] - co[l]["PART B"])
+                    remaining -= 1
+
     return {
         "registration_number": data.get("registration_number"),
         "part_a": part_a, "part_bc": part_bc, "course_outcomes": co,
@@ -365,7 +416,7 @@ class OCREngine:
             response = groq_client.chat.completions.create(
                 model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[{"role": "user", "content": content}],
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=4096,
             )
 
