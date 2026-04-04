@@ -76,22 +76,22 @@ These are the MOST RELIABLE numbers on the sheet — read each digit very carefu
 
 === STEP 3: PART B & C (Q{qs}-Q{qe}) — MOST CRITICAL SECTION ===
 
-  STEP 3a: DETERMINE WHICH SUB-PART (a or b) EACH QUESTION USES
-  Each question Q{qs}-Q{qe} has TWO rows on the sheet:
-    - ROW 1 (top row for that question) is labeled "a" in the Sub column
-    - ROW 2 (bottom row for that question) is labeled "b" in the Sub column
-  Students answer ONLY ONE of a or b per question. The OTHER row is BLANK.
+  Each question Q{qs}-Q{qe} has TWO physical rows on the sheet:
+    - ROW 1 (top) = sub-part "a"
+    - ROW 2 (bottom) = sub-part "b"
+  The student answers ONLY ONE (a or b). The other row is BLANK (no writing).
 
-  FOR EACH QUESTION, look at both rows and determine which one has marks:
-  - If marks are in ROW 1 (the "a" row) → that question's answer is "a"
-  - If marks are in ROW 2 (the "b" row) → that question's answer is "b"
-  Report this in "part_bc_answered": {{"Q{qs}": "a" or "b", "Q{qs+1}": "a" or "b", ...}}
+  FOR EACH QUESTION, you must determine:
+  1. "sub": Look at BOTH rows. Which row has RED marks written in it? "a" (top) or "b" (bottom)?
+     - If the marks/numbers are written in the TOP row → "sub": "a"
+     - If the marks/numbers are written in the BOTTOM row → "sub": "b"
+     - LOOK CAREFULLY at the vertical position of the handwritten numbers relative to the "a" and "b" labels.
+  2. "i": The main mark value from column "i" (the answered row only).
+  3. "ii": Mark from column "ii" (usually 0).
+  4. "iii": Mark from column "iii" (usually 0).
+  5. "total": The value in the "Total Marks" column for this question.
 
-  STEP 3b: READ THE MARKS
-  - Only read marks from the row that has writing. The other row is all zeros.
-  - Column "i" has the main mark. Columns "ii" and "iii" are usually 0.
-  - Read the "Total Marks" column too — it shows the total for that question.
-  - VALIDATE: Sum of all Part B&C marks MUST equal part_bc_total_written.
+  VALIDATE: Sum of all question totals MUST equal part_bc_total_written.
 
 === STEP 4: COURSE OUTCOMES (CO-1 to CO-{co['count']}) ===
   Table at bottom of sheet. It has 4 data columns LEFT to RIGHT:
@@ -110,8 +110,10 @@ These are the MOST RELIABLE numbers on the sheet — read each digit very carefu
   DIGIT CONFUSION in CO table: "2" vs "3" — check if the top is open (2) or closed (3).
   "4" vs "9" — check stroke direction. "11" vs "1" — count strokes.
 
-  VALIDATION: Sum of all CO PART A values should equal part_a_total_written ({part_a['max_marks']} max).
-  Sum of all CO TOTAL values should equal grand_total_written.
+  VALIDATION:
+  - Sum of all CO "PART A" values should equal part_a_total_written.
+  - Sum of all CO "TOTAL" values should equal grand_total_written.
+  - If these sums don't match, re-read the CO digits more carefully.
 
 === STEP 5: FINAL VALIDATION ===
   - Sum(Q1..Q{part_a['questions']}) == part_a_total_written
@@ -128,12 +130,10 @@ RETURN ONLY valid JSON (no markdown, no code fences, no explanation):
   "part_bc_total_written": <int>,
   "grand_total_written": <int>,
   "part_a": {{"Q1": <int 0-{part_a['marks_each']}>, "Q2": <int>, ..., "Q{part_a['questions']}": <int>}},
-  "part_bc_answered": {{"Q{qs}": "a", "Q{qs+1}": "a", ..., "Q{qe}": "b"}},
-  "part_bc_totals": {{"Q{qs}": <int>, "Q{qs+1}": <int>, ..., "Q{qe}": <int>}},
   "part_bc": {{
-    "Q{qs}a_i": <int>, "Q{qs}a_ii": <int>, "Q{qs}a_iii": <int>,
-    "Q{qs}b_i": <int>, "Q{qs}b_ii": <int>, "Q{qs}b_iii": <int>,
-    ... for Q{qs}-Q{qe}, each with a_i,a_ii,a_iii,b_i,b_ii,b_iii
+    "Q{qs}": {{"sub": "a", "i": <int>, "ii": <int>, "iii": <int>, "total": <int>}},
+    "Q{qs+1}": {{"sub": "b", "i": <int>, "ii": <int>, "iii": <int>, "total": <int>}},
+    ... for each Q{qs}-Q{qe}
   }},
   "course_outcomes": {{
     "{co['labels'][0]}": {{"PART A": <int>, "PART B": <int>, "PART C": <int>, "TOTAL": <int>}},
@@ -146,8 +146,8 @@ RULES:
 - Empty/blank cell = 0.
 - Registration number: "REGISTER NUMBER" field.{f' Prefix is "{reg_prefix}".' if reg_prefix else ''}
 - Written totals are GROUND TRUTH — individual marks must sum to match.
-- For Part B&C: fill "part_bc_answered" FIRST, then fill marks only in the answered sub-part.
-- "part_bc_totals" = the "Total Marks" column value for each question Q{qs}-Q{qe}.
+- For Part B&C: each question is ONE object with "sub" ("a" or "b"), "i", "ii", "iii", "total".
+  The "sub" field is CRITICAL — look at which row has writing, not which row is first.
 - For CO: read ALL 4 columns. PART C is often 0 (empty cell). TOTAL is the rightmost column.
 - Return ONLY raw JSON.
 """
@@ -193,43 +193,47 @@ def _adjust_marks_to_target(marks: dict, target: int) -> dict:
     return adjusted
 
 
-def _fix_part_bc_subparts(part_bc: dict, q_start: int, q_end: int,
-                          answered: dict = None) -> dict:
-    """Fix sub-part placement using the 'part_bc_answered' hint from Groq.
-    If answered dict says Q12='b', move any marks from a→b for that question.
-    Also ensures only one sub-part has marks per question."""
-    fixed = dict(part_bc)
+def _expand_part_bc(data: dict, q_start: int, q_end: int) -> dict:
+    """Convert simplified Part B&C format (one object per question with sub/i/ii/iii/total)
+    into flat format (Q11a_i, Q11a_ii, Q11a_iii, Q11b_i, Q11b_ii, Q11b_iii) for frontend.
+    Also uses 'total' field to validate/fix the mark values."""
+    raw = data.get("part_bc", {})
+    flat = {}
+
     for q in range(q_start, q_end + 1):
-        a_total = sum(int(fixed.get(f'Q{q}a_{c}', 0) or 0) for c in ['i', 'ii', 'iii'])
-        b_total = sum(int(fixed.get(f'Q{q}b_{c}', 0) or 0) for c in ['i', 'ii', 'iii'])
         q_key = f'Q{q}'
-        hint = (answered or {}).get(q_key, '').lower().strip()
+        q_data = raw.get(q_key, {})
 
-        # Use the answered hint to fix misplaced marks
-        if hint == 'b' and a_total > 0 and b_total == 0:
-            # Groq said student answered "b" but marks are in "a" → move them
-            for c in ['i', 'ii', 'iii']:
-                fixed[f'Q{q}b_{c}'] = fixed.get(f'Q{q}a_{c}', 0)
-                fixed[f'Q{q}a_{c}'] = 0
-        elif hint == 'a' and b_total > 0 and a_total == 0:
-            # Groq said student answered "a" but marks are in "b" → move them
-            for c in ['i', 'ii', 'iii']:
-                fixed[f'Q{q}a_{c}'] = fixed.get(f'Q{q}b_{c}', 0)
-                fixed[f'Q{q}b_{c}'] = 0
+        if isinstance(q_data, dict) and "sub" in q_data:
+            # New simplified format
+            sub = str(q_data.get("sub", "a")).lower().strip()
+            if sub not in ("a", "b"):
+                sub = "a"
+            i_val = max(0, int(q_data.get("i", 0) or 0))
+            ii_val = max(0, int(q_data.get("ii", 0) or 0))
+            iii_val = max(0, int(q_data.get("iii", 0) or 0))
+            total = max(0, int(q_data.get("total", 0) or 0))
 
-        # Recalculate after potential move
-        a_total = sum(int(fixed.get(f'Q{q}a_{c}', 0) or 0) for c in ['i', 'ii', 'iii'])
-        b_total = sum(int(fixed.get(f'Q{q}b_{c}', 0) or 0) for c in ['i', 'ii', 'iii'])
+            # Use per-question total to fix mark values
+            mark_sum = i_val + ii_val + iii_val
+            if total > 0 and mark_sum != total and total <= 16:
+                i_val = max(0, total - ii_val - iii_val)
 
-        # If both still have marks, keep the higher one
-        if a_total > 0 and b_total > 0:
-            if b_total > a_total:
+            # Place marks in the correct sub-part, zero out the other
+            other = "b" if sub == "a" else "a"
+            flat[f'Q{q}{sub}_i'] = i_val
+            flat[f'Q{q}{sub}_ii'] = ii_val
+            flat[f'Q{q}{sub}_iii'] = iii_val
+            flat[f'Q{q}{other}_i'] = 0
+            flat[f'Q{q}{other}_ii'] = 0
+            flat[f'Q{q}{other}_iii'] = 0
+        else:
+            # Fallback: old flat format (Q11a_i style) — just pass through
+            for sub in ['a', 'b']:
                 for c in ['i', 'ii', 'iii']:
-                    fixed[f'Q{q}a_{c}'] = 0
-            else:
-                for c in ['i', 'ii', 'iii']:
-                    fixed[f'Q{q}b_{c}'] = 0
-    return fixed
+                    k = f'Q{q}{sub}_{c}'
+                    flat[k] = max(0, int(raw.get(k, 0) or 0))
+    return flat
 
 
 def _validate_and_fix(data: dict, exam_format: dict) -> dict:
@@ -254,42 +258,12 @@ def _validate_and_fix(data: dict, exam_format: dict) -> dict:
         part_a[key] = max(0, min(part_a[key], part_a_cfg["marks_each"]))
     part_a_total = sum(part_a.values())
 
-    # Clamp Part BC
-    part_bc = data.get("part_bc", {})
-    for key in list(part_bc.keys()):
-        part_bc[key] = max(0, int(part_bc.get(key, 0) or 0))
-
-    # Fix sub-parts using the answered hint from Groq
-    answered = data.get("part_bc_answered", {})
-    part_bc = _fix_part_bc_subparts(
-        part_bc,
+    # Expand Part BC from simplified format to flat format
+    part_bc = _expand_part_bc(
+        data,
         part_bc_cfg["questions_start"],
         part_bc_cfg["questions_end"],
-        answered=answered,
     )
-
-    # Use per-question totals to fix individual question marks
-    q_totals = data.get("part_bc_totals", {})
-    for q in range(part_bc_cfg["questions_start"], part_bc_cfg["questions_end"] + 1):
-        q_key = f'Q{q}'
-        expected = int(q_totals.get(q_key, 0) or 0)
-        if expected <= 0:
-            continue
-        # Sum current marks for this question (both a and b)
-        current = sum(int(part_bc.get(f'Q{q}{sub}_{c}', 0) or 0)
-                       for sub in ['a', 'b'] for c in ['i', 'ii', 'iii'])
-        if current != expected and expected <= 16:
-            # Find which sub-part has marks and fix the _i value
-            for sub in ['a', 'b']:
-                sub_total = sum(int(part_bc.get(f'Q{q}{sub}_{c}', 0) or 0) for c in ['i', 'ii', 'iii'])
-                if sub_total > 0:
-                    # Adjust the primary mark (i) to match expected total
-                    ii_val = int(part_bc.get(f'Q{q}{sub}_ii', 0) or 0)
-                    iii_val = int(part_bc.get(f'Q{q}{sub}_iii', 0) or 0)
-                    new_i = expected - ii_val - iii_val
-                    if new_i >= 0:
-                        part_bc[f'Q{q}{sub}_i'] = new_i
-                    break
 
     part_bc_max = part_bc_cfg["max_marks"]
     target_bc = part_bc_total_written if isinstance(part_bc_total_written, (int, float)) and 0 <= int(part_bc_total_written) <= part_bc_max else min(sum(part_bc.values()), part_bc_max)
