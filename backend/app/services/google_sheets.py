@@ -18,21 +18,29 @@ SCOPES = [
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-# Column headers — 100 marks only, with Exam Pattern and CO columns
+# Column headers — 100 marks, question-wise + CO columns
 BASE_HEADERS = [
     "S.No", "Register Number", "Student Name", "Section",
     "Academic Year", "Year/Batch", "Department",
     "Subject Name", "Subject Code", "Exam Pattern",
-    "Part A (/20)", "Part B&C (/80)",
+    "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10",
+    "Part A (/20)",
+    "Q11", "Q12", "Q13", "Q14", "Q15", "Q16",
+    "Part B&C (/80)",
     "Grand Total (/100)", "Pass Marks", "Status",
     "CO1", "CO2", "CO3", "CO4", "CO5",
 ]
 
+# Prefix used to identify subject banner rows inside dept+year+section sheets
+SUBJECT_BANNER_PREFIX = "\u25b6 "
+
 # ── Formatting colors ──
-HEADER_BG = {"red": 0.16, "green": 0.22, "blue": 0.43}
-HEADER_FG = {"red": 1, "green": 1, "blue": 1}
-PASS_BG   = {"red": 0.85, "green": 0.95, "blue": 0.87}
-FAIL_BG   = {"red": 0.97, "green": 0.85, "blue": 0.85}
+HEADER_BG  = {"red": 0.16, "green": 0.22, "blue": 0.43}
+HEADER_FG  = {"red": 1, "green": 1, "blue": 1}
+PASS_BG    = {"red": 0.85, "green": 0.95, "blue": 0.87}
+FAIL_BG    = {"red": 0.97, "green": 0.85, "blue": 0.85}
+BANNER_BG  = {"red": 0.91, "green": 0.85, "blue": 1.0}
+BANNER_FG  = {"red": 0.20, "green": 0.10, "blue": 0.50}
 
 
 def _get_sheet_id(worksheet) -> int:
@@ -74,6 +82,24 @@ def _style_row(ws, row_number, col_count, status):
         ws.spreadsheet.batch_update({"requests": [_build_row_color(_get_sheet_id(ws), row_number - 1, col_count, status)]})
     except Exception as e:
         print(f"Warning: row style failed: {e}")
+
+def _style_banner(ws, row_number, col_count):
+    """Style a subject banner row with purple background."""
+    try:
+        sid = _get_sheet_id(ws)
+        ws.spreadsheet.batch_update({"requests": [
+            {"repeatCell": {
+                "range": {"sheetId": sid, "startRowIndex": row_number - 1, "endRowIndex": row_number,
+                           "startColumnIndex": 0, "endColumnIndex": col_count},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": BANNER_BG,
+                    "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": BANNER_FG},
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat)",
+            }}
+        ]})
+    except Exception as e:
+        print(f"Warning: banner style failed: {e}")
 
 def _build_client(creds_filename):
     """Build gspread client. Tries: 1) env var JSON/base64, 2) file on disk."""
@@ -179,8 +205,30 @@ class GoogleSheetsService:
             return 0
 
     def _result_row(self, r: ExamResult, sno: int = 0) -> list:
-        """Build a flat row with exam pattern and CO marks."""
+        """Build a flat row with question-wise marks, CO marks."""
         co_marks = getattr(r, 'co_marks', {}) or {}
+
+        # Parse section_marks_json for question-wise data
+        try:
+            section_data = json.loads(r.section_marks_json) if r.section_marks_json else {}
+        except Exception:
+            section_data = {}
+
+        part_a = section_data.get('part_a', {})
+        part_bc = section_data.get('part_bc', {})
+
+        # Q1-Q10 individual marks
+        q_a = [str(part_a.get(f'Q{i}', '')) for i in range(1, 11)]
+
+        # Q11-Q16 totals (sum sub-parts per question)
+        q_bc = []
+        for q in range(11, 17):
+            total = 0
+            for sub in ['a', 'b']:
+                for col in ['i', 'ii', 'iii']:
+                    total += int(part_bc.get(f'Q{q}{sub}_{col}', 0) or 0)
+            q_bc.append(str(total))
+
         return [
             str(sno) if sno else "",
             r.register_number,
@@ -192,7 +240,9 @@ class GoogleSheetsService:
             r.subject_name,
             r.subject_code,
             getattr(r, 'exam_pattern', ''),
+            *q_a,                       # Q1-Q10
             str(r.part_a_total),
+            *q_bc,                      # Q11-Q16 totals
             str(r.part_bc_total),
             str(r.marks_obtained),
             str(r.pass_marks),
@@ -226,53 +276,120 @@ class GoogleSheetsService:
             return False
 
     def save_result_to_worksheet(self, sheet_name: str, result: ExamResult) -> bool:
-        """Save result to a specific worksheet."""
+        """Save result to a dept+year+section worksheet with subject grouping.
+        Each subject gets a banner row; student rows are placed under the
+        correct subject group."""
         if not self.spreadsheet:
             print("ERROR: spreadsheet not connected")
             return False
         try:
-            ws = self.spreadsheet.worksheet(sheet_name)
-            self._ensure_headers(ws)
-            
-            sno = self._get_row_count(ws) + 1
-            row = self._result_row(result, sno)
-            ws.append_row(row, value_input_option='USER_ENTERED')
-            row_num = len(ws.get_all_values())
-            _style_row(ws, row_num, len(row), result.status)
-            print(f"Saved to '{sheet_name}': {result.register_number} - {result.marks_obtained}")
+            try:
+                ws = self.spreadsheet.worksheet(sheet_name)
+            except gspread.exceptions.WorksheetNotFound:
+                ws = self.spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=len(BASE_HEADERS) + 2)
+                ws.update('A1', [BASE_HEADERS])
+                _style_header(ws, len(BASE_HEADERS))
+
+            all_values = ws.get_all_values()
+            col_count = len(BASE_HEADERS)
+            subject_code = result.subject_code
+            exam_pattern = getattr(result, 'exam_pattern', '')
+
+            # ── Find existing subject group ──
+            banner_idx = None   # 0-based row index of subject banner
+            group_end = None    # 0-based row index of last data row in group
+
+            for i, row in enumerate(all_values):
+                cell0 = str(row[0]) if row else ""
+                if cell0.startswith(SUBJECT_BANNER_PREFIX) and subject_code in cell0:
+                    banner_idx = i
+                    group_end = i
+                elif banner_idx is not None and cell0.startswith(SUBJECT_BANNER_PREFIX):
+                    break  # hit next subject banner
+                elif banner_idx is not None:
+                    if any(str(c).strip() for c in row):
+                        group_end = i
+
+            if banner_idx is not None:
+                # Subject exists → insert after last data row
+                sno = group_end - banner_idx  # rows between banner and end = data count
+                row_data = self._result_row(result, sno)
+                insert_pos = group_end + 2  # 1-indexed, after last data row
+                ws.insert_row(row_data, insert_pos, value_input_option='USER_ENTERED')
+                _style_row(ws, insert_pos, col_count, result.status)
+                print(f"Inserted under subject '{subject_code}' at row {insert_pos}")
+            else:
+                # New subject → append section at bottom
+                current_rows = len(all_values)
+
+                # Empty separator row (skip if sheet only has the header)
+                if current_rows > 1:
+                    ws.append_row([''] * col_count, value_input_option='USER_ENTERED')
+
+                # Subject banner row
+                banner_text = f"{SUBJECT_BANNER_PREFIX}{subject_code} - {result.subject_name}"
+                if exam_pattern:
+                    banner_text += f" | {exam_pattern}"
+                banner_row = [banner_text] + [''] * (col_count - 1)
+                ws.append_row(banner_row, value_input_option='USER_ENTERED')
+                banner_row_num = len(ws.get_all_values())
+                _style_banner(ws, banner_row_num, col_count)
+
+                # Data row
+                row_data = self._result_row(result, 1)
+                ws.append_row(row_data, value_input_option='USER_ENTERED')
+                data_row_num = len(ws.get_all_values())
+                _style_row(ws, data_row_num, col_count, result.status)
+                print(f"Created subject group '{subject_code}' in '{sheet_name}'")
+
             return True
-        except gspread.exceptions.WorksheetNotFound:
-            print(f"Worksheet '{sheet_name}' not found, creating...")
-            return self._create_and_save(sheet_name, result)
         except Exception as e:
             print(f"Error saving to {sheet_name}: {e}")
             import traceback
             traceback.print_exc()
             return False
 
-    def _create_and_save(self, sheet_name: str, result: ExamResult) -> bool:
-        """Create worksheet if not exists and save result."""
-        try:
-            ws = self.spreadsheet.add_worksheet(title=sheet_name, rows=300, cols=len(BASE_HEADERS) + 2)
-            ws.update('A1', [BASE_HEADERS])
-            _style_header(ws, len(BASE_HEADERS))
-            
-            row = self._result_row(result, 1)
-            ws.append_row(row, value_input_option='USER_ENTERED')
-            _style_row(ws, 2, len(row), result.status)
-            print(f"Created sheet '{sheet_name}' and saved first result")
-            return True
-        except Exception as e:
-            print(f"Error creating sheet {sheet_name}: {e}")
-            return False
-
     # ─── Read results ───
+
+    @staticmethod
+    def _normalize(row: Dict) -> Dict:
+        """Map Google Sheet header names to consistent API keys."""
+        return {
+            "SNo": row.get("S.No", ""),
+            "RegisterNumber": str(row.get("Register Number", "")),
+            "StudentName": str(row.get("Student Name", "")),
+            "Section": str(row.get("Section", "")),
+            "AcademicYear": str(row.get("Academic Year", "")),
+            "Year": str(row.get("Year/Batch", "")),
+            "Branch": str(row.get("Department", "")),
+            "SubjectName": str(row.get("Subject Name", "")),
+            "SubjectCode": str(row.get("Subject Code", "")),
+            "ExamPattern": str(row.get("Exam Pattern", "")),
+            "Q1": row.get("Q1", ""), "Q2": row.get("Q2", ""),
+            "Q3": row.get("Q3", ""), "Q4": row.get("Q4", ""),
+            "Q5": row.get("Q5", ""), "Q6": row.get("Q6", ""),
+            "Q7": row.get("Q7", ""), "Q8": row.get("Q8", ""),
+            "Q9": row.get("Q9", ""), "Q10": row.get("Q10", ""),
+            "PartATotal": row.get("Part A (/20)", 0),
+            "Q11": row.get("Q11", ""), "Q12": row.get("Q12", ""),
+            "Q13": row.get("Q13", ""), "Q14": row.get("Q14", ""),
+            "Q15": row.get("Q15", ""), "Q16": row.get("Q16", ""),
+            "PartBCTotal": row.get("Part B&C (/80)", 0),
+            "MarksObtained": row.get("Grand Total (/100)", 0),
+            "TotalMarks": 100,
+            "PassMarks": row.get("Pass Marks", 40),
+            "Status": str(row.get("Status", "")),
+            "CO1": row.get("CO1", ""), "CO2": row.get("CO2", ""),
+            "CO3": row.get("CO3", ""), "CO4": row.get("CO4", ""),
+            "CO5": row.get("CO5", ""),
+        }
 
     def get_all_results(self) -> List[Dict]:
         if not self.results_db:
             return []
         try:
-            return self.results_db.get_all_records()
+            raw = self.results_db.get_all_records()
+            return [self._normalize(r) for r in raw]
         except Exception as e:
             print(f"Error fetching results: {e}")
             return []
@@ -281,40 +398,64 @@ class GoogleSheetsService:
         results = self.get_all_results()
         filtered = []
         for r in results:
-            if section and str(r.get("Section", "")).upper() != section.upper(): continue
-            if academic_year and str(r.get("AcademicYear", "")).upper() != academic_year.upper(): continue
-            if subject_code and str(r.get("SubjectCode", "")).upper() != subject_code.upper(): continue
+            if section and r["Section"].upper() != section.upper(): continue
+            if academic_year and r["AcademicYear"].upper() != academic_year.upper(): continue
+            if subject_code and r["SubjectCode"].upper() != subject_code.upper(): continue
             filtered.append(r)
         return filtered
 
     def get_dashboard_stats(self, section=None, academic_year=None, subject_code=None) -> Dict:
         results = self.get_results_by_filter(section, academic_year, subject_code)
         if not results:
-            return {"total_students": 0, "total_passed": 0, "total_failed": 0, "pass_percentage": 0.0, "average_marks": 0.0, "highest_marks": 0, "lowest_marks": 0, "section_wise": {}, "year_wise": {}}
+            return {"total_students": 0, "total_passed": 0, "total_failed": 0,
+                    "pass_percentage": 0.0, "average_marks": 0.0,
+                    "highest_marks": 0, "lowest_marks": 0,
+                    "section_wise": {}, "year_wise": {}, "subject_wise": {}}
+
         marks_list, passed, failed = [], 0, 0
-        section_wise, year_wise = {}, {}
+        section_wise, year_wise, subject_wise = {}, {}, {}
+
         for r in results:
-            m = int(r.get("MarksObtained", 0)); marks_list.append(m)
+            m = int(r.get("MarksObtained", 0) or 0)
+            marks_list.append(m)
             st = str(r.get("Status", "")).upper()
-            passed += 1 if st == "PASS" else 0; failed += 1 if st == "FAIL" else 0
-            for bucket, key in [(section_wise, str(r.get("Section", "?"))), (year_wise, str(r.get("AcademicYear", "?")))]:
-                bucket.setdefault(key, {"total": 0, "passed": 0, "failed": 0, "avg_marks": 0})
+            passed += 1 if st == "PASS" else 0
+            failed += 1 if st == "FAIL" else 0
+
+            for bucket, key in [
+                (section_wise, r.get("Section", "?")),
+                (year_wise, r.get("AcademicYear", "?")),
+                (subject_wise, f"{r.get('SubjectCode','')} - {r.get('SubjectName','')}"),
+            ]:
+                bucket.setdefault(key, {"total": 0, "passed": 0, "failed": 0, "marks": []})
                 bucket[key]["total"] += 1
                 bucket[key]["passed"] += 1 if st == "PASS" else 0
                 bucket[key]["failed"] += 1 if st == "FAIL" else 0
-        for sec in section_wise:
-            sm = [int(r.get("MarksObtained", 0)) for r in results if str(r.get("Section", "")) == sec]
-            section_wise[sec]["avg_marks"] = round(sum(sm)/len(sm), 2) if sm else 0
-        for yr in year_wise:
-            ym = [int(r.get("MarksObtained", 0)) for r in results if str(r.get("AcademicYear", "")) == yr]
-            year_wise[yr]["avg_marks"] = round(sum(ym)/len(ym), 2) if ym else 0
+                bucket[key]["marks"].append(m)
+
+        def _summarize(bucket):
+            for k, v in bucket.items():
+                ml = v.pop("marks", [])
+                v["avg_marks"] = round(sum(ml) / len(ml), 2) if ml else 0
+                v["highest"] = max(ml) if ml else 0
+                v["lowest"] = min(ml) if ml else 0
+                v["pass_pct"] = round((v["passed"] / v["total"]) * 100, 1) if v["total"] else 0
+
+        _summarize(section_wise)
+        _summarize(year_wise)
+        _summarize(subject_wise)
+
         t = len(results)
-        return {"total_students": t, "total_passed": passed, "total_failed": failed,
-                "pass_percentage": round((passed/t)*100, 2) if t else 0,
-                "average_marks": round(sum(marks_list)/len(marks_list), 2) if marks_list else 0,
-                "highest_marks": max(marks_list) if marks_list else 0,
-                "lowest_marks": min(marks_list) if marks_list else 0,
-                "section_wise": section_wise, "year_wise": year_wise}
+        return {
+            "total_students": t, "total_passed": passed, "total_failed": failed,
+            "pass_percentage": round((passed / t) * 100, 2) if t else 0,
+            "average_marks": round(sum(marks_list) / len(marks_list), 2) if marks_list else 0,
+            "highest_marks": max(marks_list) if marks_list else 0,
+            "lowest_marks": min(marks_list) if marks_list else 0,
+            "section_wise": section_wise,
+            "year_wise": year_wise,
+            "subject_wise": subject_wise,
+        }
 
     # ─── Worksheet management ───
 
@@ -433,11 +574,13 @@ class GoogleSheetsService:
             print(f"Error listing worksheets: {e}"); return []
 
     def get_sheet_results(self, sheet_name: str) -> List[Dict]:
-        """Get all rows from a specific sheet."""
+        """Get all data rows from a specific sheet (skip banner rows)."""
         if not self.spreadsheet: return []
         try:
             ws = self.spreadsheet.worksheet(sheet_name)
-            return ws.get_all_records()
+            raw = ws.get_all_records()
+            # Filter out subject banner rows
+            return [r for r in raw if not str(r.get("S.No", "")).startswith(SUBJECT_BANNER_PREFIX)]
         except Exception as e:
             print(f"Error reading sheet {sheet_name}: {e}"); return []
 
@@ -446,12 +589,14 @@ class GoogleSheetsService:
         rows = self.get_sheet_results(sheet_name)
         if not rows:
             return {"total": 0, "passed": 0, "failed": 0, "pass_pct": 0, "avg": 0, "highest": 0, "lowest": 0}
-        total, passed, failed = len(rows), 0, 0
+        total, passed, failed = 0, 0, 0
         marks = []
         for r in rows:
             st = str(r.get("Status", "")).upper()
+            if st not in ("PASS", "FAIL"): continue
+            total += 1
             if st == "PASS": passed += 1
-            elif st == "FAIL": failed += 1
+            else: failed += 1
             for key in ["Grand Total (/100)", "Grand Total"]:
                 val = r.get(key)
                 if val is not None:
@@ -478,9 +623,10 @@ class GoogleSheetsService:
                         if not vals: continue
                         cc = len(vals[0]) if vals[0] else len(BASE_HEADERS)
                         reqs.extend(_build_header_fmt(sid, cc))
-                        # Status column is index 13 (0-based) in simplified headers
+                        # Status column index in BASE_HEADERS
+                        status_idx = next((j for j, h in enumerate(BASE_HEADERS) if h == "Status"), 30)
                         for ri in range(1, len(vals)):
-                            st = vals[ri][13] if len(vals[ri]) > 13 else ""
+                            st = vals[ri][status_idx] if len(vals[ri]) > status_idx else ""
                             if st.upper() in ("PASS", "FAIL"):
                                 reqs.append(_build_row_color(sid, ri, cc, st))
                         styled += 1

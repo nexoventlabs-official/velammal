@@ -71,7 +71,7 @@ export const getResults = (filters = {}) => {
 }
 
 export const getStudentResults = (registerNumber) =>
-  api.get(`/results/student/${registerNumber}`)
+  api.get(`/results/student/${encodeURIComponent(registerNumber)}`)
 
 export const getDashboardStats = (filters = {}) => {
   const params = new URLSearchParams()
