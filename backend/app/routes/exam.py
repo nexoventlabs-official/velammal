@@ -2,23 +2,16 @@ import os
 import uuid
 import json
 import shutil
-import asyncio
 from datetime import datetime
 from typing import List, Optional
-from io import BytesIO
-from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from PIL import Image
-
-_executor = ThreadPoolExecutor(max_workers=4)
 from app.config import settings
 from app.models import ExamConfig, ExamResult, ProcessingResponse, get_exam_format
 from app.services.google_sheets import sheets_service
 from app.services.student_db import student_db
 from app.services.ocr_engine import ocr_engine
-from app.services import cloudinary_service
-
-# Max file size for Cloudinary free tier (10MB) - we'll compress to 8MB to be safe
+# Max image size for Groq API (keep images readable but not huge)
 MAX_FILE_SIZE = 8 * 1024 * 1024  # 8MB
 
 def compress_image(file_path: str, max_size: int = MAX_FILE_SIZE) -> str:
@@ -121,7 +114,6 @@ async def upload_exam_pages(
     os.makedirs(student_dir, exist_ok=True)
 
     saved_paths = []
-    cloudinary_folder = f"examscan/{session_id}"
 
     for i, file in enumerate(files):
         ext = os.path.splitext(file.filename)[1] or ".png"
@@ -136,32 +128,21 @@ async def upload_exam_pages(
 
     session["current_student_pages"] = saved_paths
 
-    # Run OCR immediately on local files — no need to wait for Cloudinary
+    # Run OCR on local files (Groq reads base64 — no cloud storage needed)
     exam_format = session.get("format", None)
     reg_prefix = session.get("reg_prefix", "")
     ocr_result = ocr_engine.process_exam_sheet(saved_paths, exam_format=exam_format, reg_prefix=reg_prefix)
 
-    # Upload to Cloudinary in background (for backup), then delete
-    def _cloudinary_cleanup():
-        try:
-            cloud_ids = []
-            for fp in saved_paths:
-                r = cloudinary_service.upload_image(fp, folder=cloudinary_folder)
-                if r["public_id"]:
-                    cloud_ids.append(r["public_id"])
-            cloudinary_service.delete_images(cloud_ids, folder=cloudinary_folder)
-        except Exception as e:
-            print(f"Cloudinary background task error: {e}")
-
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(_executor, _cloudinary_cleanup)
-
-    # Clean up local files immediately after OCR
+    # Clean up local files and directory immediately after OCR
     for p in saved_paths:
         try:
             os.remove(p)
         except Exception:
             pass
+    try:
+        shutil.rmtree(student_dir, ignore_errors=True)
+    except Exception:
+        pass
 
     return {
         "success": True,

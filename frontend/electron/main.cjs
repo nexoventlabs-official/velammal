@@ -300,11 +300,13 @@ ipcMain.handle('scanner:scan', async (event, options = {}) => {
 })
 
 ipcMain.handle('scanner:getFile', async (event, filePath) => {
-  const fs = require('fs')
   try {
     const data = fs.readFileSync(filePath)
     const ext = path.extname(filePath).toLowerCase()
     const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png'
+
+    // Clean up temp scan file after reading
+    try { fs.unlinkSync(filePath) } catch (e) {}
 
     return {
       success: true,
