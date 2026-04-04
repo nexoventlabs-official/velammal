@@ -94,20 +94,24 @@ These are the MOST RELIABLE numbers on the sheet — read each digit very carefu
   - VALIDATE: Sum of all Part B&C marks MUST equal part_bc_total_written.
 
 === STEP 4: COURSE OUTCOMES (CO-1 to CO-{co['count']}) ===
-  Table at bottom of sheet. It has 4 columns in this order LEFT to RIGHT:
-    PART A | PART B | PART C | TOTAL
+  Table at bottom of sheet. It has 4 data columns LEFT to RIGHT:
+    Column 1: PART A | Column 2: PART B | Column 3: PART C | Column 4: TOTAL
   
-  IMPORTANT — READ ONLY "PART A", "PART B", and "TOTAL" (the 1st, 2nd, and 4th columns):
-  - PART A = 1st data column (small numbers, typically 1-6)
-  - PART B = 2nd data column (medium numbers, typically 8-12)
-  - TOTAL = LAST/RIGHTMOST data column (the written total)
-  - IGNORE the PART C column — I will calculate it automatically as TOTAL - PART A - PART B.
-  - Set "PART C" to 0 in your output. I will fix it.
+  READ ALL 4 COLUMNS for each CO row:
+  - PART A = Column 1 (small numbers, typically 1-6)
+  - PART B = Column 2 (medium numbers, typically 8-12)
+  - PART C = Column 3 (may be EMPTY/0 for many rows — only some COs have Part C marks)
+  - TOTAL = Column 4, the RIGHTMOST column (this is the sum written by examiner)
+  
+  CRITICAL: The PART C column is OFTEN EMPTY. If you see no writing in that cell, it is 0.
+  The TOTAL column always has a value. Do NOT confuse an empty PART C with TOTAL.
+  Read TOTAL from the LAST column on the right.
 
 === STEP 5: FINAL VALIDATION ===
   - Sum(Q1..Q{part_a['questions']}) == part_a_total_written
   - Sum(all Part B&C marks) == part_bc_total_written
   - part_a_total_written + part_bc_total_written == grand_total_written
+  - For each CO: PART A + PART B + PART C should equal TOTAL
 
 RETURN ONLY valid JSON (no markdown, no code fences, no explanation):
 {{
@@ -117,13 +121,14 @@ RETURN ONLY valid JSON (no markdown, no code fences, no explanation):
   "grand_total_written": <int>,
   "part_a": {{"Q1": <int 0-{part_a['marks_each']}>, "Q2": <int>, ..., "Q{part_a['questions']}": <int>}},
   "part_bc_answered": {{"Q{qs}": "a", "Q{qs+1}": "a", ..., "Q{qe}": "b"}},
+  "part_bc_totals": {{"Q{qs}": <int>, "Q{qs+1}": <int>, ..., "Q{qe}": <int>}},
   "part_bc": {{
     "Q{qs}a_i": <int>, "Q{qs}a_ii": <int>, "Q{qs}a_iii": <int>,
     "Q{qs}b_i": <int>, "Q{qs}b_ii": <int>, "Q{qs}b_iii": <int>,
     ... for Q{qs}-Q{qe}, each with a_i,a_ii,a_iii,b_i,b_ii,b_iii
   }},
   "course_outcomes": {{
-    "{co['labels'][0]}": {{"PART A": <int>, "PART B": <int>, "PART C": 0, "TOTAL": <int>}},
+    "{co['labels'][0]}": {{"PART A": <int>, "PART B": <int>, "PART C": <int>, "TOTAL": <int>}},
     ... for: {', '.join(co['labels'])}
   }},
   "confidence": <float 0.0-1.0>
@@ -134,7 +139,8 @@ RULES:
 - Registration number: "REGISTER NUMBER" field.{f' Prefix is "{reg_prefix}".' if reg_prefix else ''}
 - Written totals are GROUND TRUTH — individual marks must sum to match.
 - For Part B&C: fill "part_bc_answered" FIRST, then fill marks only in the answered sub-part.
-- For CO: set PART C = 0. Read only PART A, PART B, and TOTAL.
+- "part_bc_totals" = the "Total Marks" column value for each question Q{qs}-Q{qe}.
+- For CO: read ALL 4 columns. PART C is often 0 (empty cell). TOTAL is the rightmost column.
 - Return ONLY raw JSON.
 """
     return prompt
@@ -254,6 +260,29 @@ def _validate_and_fix(data: dict, exam_format: dict) -> dict:
         answered=answered,
     )
 
+    # Use per-question totals to fix individual question marks
+    q_totals = data.get("part_bc_totals", {})
+    for q in range(part_bc_cfg["questions_start"], part_bc_cfg["questions_end"] + 1):
+        q_key = f'Q{q}'
+        expected = int(q_totals.get(q_key, 0) or 0)
+        if expected <= 0:
+            continue
+        # Sum current marks for this question (both a and b)
+        current = sum(int(part_bc.get(f'Q{q}{sub}_{c}', 0) or 0)
+                       for sub in ['a', 'b'] for c in ['i', 'ii', 'iii'])
+        if current != expected and expected <= 16:
+            # Find which sub-part has marks and fix the _i value
+            for sub in ['a', 'b']:
+                sub_total = sum(int(part_bc.get(f'Q{q}{sub}_{c}', 0) or 0) for c in ['i', 'ii', 'iii'])
+                if sub_total > 0:
+                    # Adjust the primary mark (i) to match expected total
+                    ii_val = int(part_bc.get(f'Q{q}{sub}_ii', 0) or 0)
+                    iii_val = int(part_bc.get(f'Q{q}{sub}_iii', 0) or 0)
+                    new_i = expected - ii_val - iii_val
+                    if new_i >= 0:
+                        part_bc[f'Q{q}{sub}_i'] = new_i
+                    break
+
     part_bc_max = part_bc_cfg["max_marks"]
     target_bc = part_bc_total_written if isinstance(part_bc_total_written, (int, float)) and 0 <= int(part_bc_total_written) <= part_bc_max else min(sum(part_bc.values()), part_bc_max)
     target_bc = int(target_bc)
@@ -276,8 +305,9 @@ def _validate_and_fix(data: dict, exam_format: dict) -> dict:
                 part_bc[key] = max(0, part_bc[key])
             part_bc_total = sum(part_bc.values())
 
-    # Course Outcomes — ALWAYS derive PART C = TOTAL - PART A - PART B
-    # (Groq often confuses PART C column with TOTAL column, so we told it to skip PART C)
+    # Course Outcomes — detect column swap and always derive PART C
+    # Groq often reads TOTAL into PART C column, then computes its own TOTAL.
+    # Detection: if TOTAL == PA+PB+PC and PC > PA and PC > PB → column swap
     co = data.get("course_outcomes", {})
     for label in list(co.keys()):
         if isinstance(co[label], dict):
@@ -285,12 +315,21 @@ def _validate_and_fix(data: dict, exam_format: dict) -> dict:
                 co[label][col] = max(0, int(co[label].get(col, 0) or 0))
             pa = co[label].get("PART A", 0)
             pb = co[label].get("PART B", 0)
+            pc = co[label].get("PART C", 0)
             total = co[label].get("TOTAL", 0)
-            # Always calculate PART C from TOTAL (which is the written value)
-            derived_pc = max(0, total - pa - pb)
-            co[label]["PART C"] = derived_pc
-            # Recalculate TOTAL to ensure consistency
-            co[label]["TOTAL"] = pa + pb + derived_pc
+
+            # Detect column swap: Groq put TOTAL in PART C, then computed TOTAL=PA+PB+PC
+            if total == pa + pb + pc and pc > pa and pc > pb:
+                # pc is actually the real TOTAL; derive real PART C
+                real_total = pc
+                real_pc = max(0, real_total - pa - pb)
+                co[label]["PART C"] = real_pc
+                co[label]["TOTAL"] = real_total
+            else:
+                # No swap detected — derive PART C from TOTAL
+                derived_pc = max(0, total - pa - pb)
+                co[label]["PART C"] = derived_pc
+                co[label]["TOTAL"] = pa + pb + derived_pc
 
     return {
         "registration_number": data.get("registration_number"),
